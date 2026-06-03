@@ -1,16 +1,4 @@
 """
-Ingestion + chunking pipeline for the Canvas RAG quiz project.
-
-Flow:
-    Canvas Modules  ->  download File items (PDF/PPTX)  ->  extract text with
-    page/slide numbers  ->  chunk  ->  emit chunks tagged with metadata.
-
-Why modules: a Canvas Module is the natural "week" unit. Pulling content per
-module (a) scopes generation to a single week, and (b) excludes non-lesson junk
-(bundle.js, index.html, .sb2, .mp4) because the teacher only adds real content
-to modules. If a course has no modules yet, pass --all-files to fall back to
-every PDF/PPTX attached to the course (week will be None).
-
 Chunk metadata schema (what every chunk carries):
     week         module name, e.g. "week1"      (None in --all-files mode)
     source_file  original filename
@@ -50,8 +38,7 @@ warnings.filterwarnings("ignore", message="Canvas may respond unexpectedly")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = REPO_ROOT / ".env"
 
-# Chunk sizing. ~900 tokens with 120 overlap is a good default for MCQ context:
-# big enough to hold a full idea, small enough to retrieve precisely.
+
 CHUNK_TOKENS = 900
 CHUNK_OVERLAP = 120
 
@@ -110,10 +97,6 @@ def iter_content_units(course, all_files: bool = False):
 
 def download(file_obj, raw_dir: Path) -> Path:
     """Download a Canvas file to raw_dir/<file_id>_<name>, cached if present.
-
-    Uses the file's verifier URL directly (no auth header) instead of
-    canvasapi's download(): the verifier authorizes the request, and this
-    avoids the token-reinjection redirect handling in the client.
     """
     raw_dir.mkdir(parents=True, exist_ok=True)
     dest = raw_dir / f"{file_obj.id}_{file_obj.display_name}"
