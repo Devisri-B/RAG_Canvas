@@ -1,0 +1,12 @@
+# Canvas RAG quiz project — ingestion/chunking stage
+canvasapi==3.6.0
+python-dotenv==1.2.2
+requests==2.34.2
+
+# document parsing
+PyMuPDF==1.27.2.3      # PDF text + page numbers (imported as `fitz`)
+python-pptx==1.0.2     # PPTX text + slide numbers
+
+# chunking
+langchain-text-splitters==1.1.2
+tiktoken==0.13.0       # token-aware splitting (cl100k_base)

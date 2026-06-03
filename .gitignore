@@ -219,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# RAG project: downloaded Canvas content + generated chunks/indexes
+/data/
