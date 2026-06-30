@@ -10,3 +10,14 @@ python-pptx==1.0.2     # PPTX text + slide numbers
 # chunking
 langchain-text-splitters==1.1.2
 tiktoken==0.13.0       # token-aware splitting (cl100k_base)
+
+# OCR for image-locked content (--ocr; portable: macOS + Linux)
+docling==2.100.0
+
+# embeddings + vector index
+sentence-transformers==5.5.1   # BAAI/bge-small-en-v1.5 (local, no API)
+faiss-cpu==1.14.2              # exact inner-product (cosine) index
+
+# question generation (needs GEMINI_API_KEY in .env)
+google-genai==2.9.0            # Gemini, structured JSON output
+pydantic==2.13.4              # question schemas / response_schema
