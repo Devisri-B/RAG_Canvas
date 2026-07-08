@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local LTI Keys
+keys/*.key
+
+# LTI registration (copy from lti_config.example.json and customize)
+config/lti_config.json
+
+# Local Cache and Temporary Files
+cache/
+
+# Cursor IDE local config (rules/plans stay local)
+.cursor/
+
