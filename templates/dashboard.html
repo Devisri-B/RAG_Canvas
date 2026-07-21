@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=11">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -239,6 +239,23 @@
             </div>
         </div>
 
+        <div id="view-feedback-review" class="view-panel">
+            <div class="glass-card" style="margin-bottom: 1.25rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                    <div>
+                        <h3 id="feedback-quiz-title" style="margin: 0; font-size: 1.25rem;">Quiz Feedback Review</h3>
+                        <span id="feedback-meta-summary" style="font-size: 0.8rem; color: var(--text-muted);">Inspect AI-generated student comments before pushing to Canvas</span>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="switchView('quizzes')">Back to Library</button>
+                        <button type="button" id="btn-approve-push" class="btn btn-primary btn-sm" onclick="approveAndPushFeedback()"><i class="fa-solid fa-paper-plane"></i> Approve & Push to Canvas</button>
+                    </div>
+                </div>
+                <div id="feedback-review-status" style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);"></div>
+            </div>
+            <div id="feedback-submissions-container"></div>
+        </div>
+
     </div>
 
     <!-- Results: hardest questions + pending comments (no tabs) -->
@@ -256,11 +273,15 @@
         </div>
     </div>
 
-    <script src="/static/js/util.js?v=15"></script>
-    <script src="/static/js/quiz-builder.js?v=15"></script>
-    <script src="/static/js/library.js?v=15"></script>
-    <script src="/static/js/quiz-modal.js?v=15"></script>
-    <script src="/static/js/main.js?v=15"></script>
-    <script src="/static/js/theme-sync.js?v=15"></script>
+    <!-- Global Floating Context Menu Portal -->
+    <div id="global-quiz-menu" class="global-quiz-menu" style="display: none;"></div>
+
+    <script src="/static/js/util.js"></script>
+    <script src="/static/js/quiz-builder.js"></script>
+    <script src="/static/js/library.js"></script>
+    <script src="/static/js/feedback-reviewer.js"></script>
+    <script src="/static/js/quiz-modal.js"></script>
+    <script src="/static/js/main.js"></script>
+    <script src="/static/js/theme-sync.js"></script>
 </body>
 </html>

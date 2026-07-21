@@ -143,6 +143,9 @@ function switchView(view) {
         if (heading) heading.textContent = "Quiz Library";
         if (sub) sub.textContent = "Saved and deployed quizzes for this course.";
         fetchQuizzesOverview();
+    } else if (view === "feedback-review") {
+        if (heading) heading.textContent = "Feedback Review Workspace";
+        if (sub) sub.textContent = "Inspect, edit, and approve student feedback comments before sending to Canvas.";
     } else {
         if (heading) heading.textContent = "Create quiz";
         if (sub) sub.textContent = "Build a quiz from your course materials and send it to Canvas.";

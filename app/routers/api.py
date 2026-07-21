@@ -540,6 +540,165 @@ def process_agentic_feedback_endpoint(
         ) from exc
 
 
+@router.post("/quizzes/{quiz_id}/undeploy")
+def undeploy_quiz_endpoint(
+    course_id: CourseIdDep,
+    quiz_id: str,
+    request: Request,
+    _: RequireLtiLaunchDep,
+    __: RequireTeacherDep,
+) -> dict:
+    """Reset a deployed quiz back to draft state in EasyLearn."""
+    draft = get_quiz_draft(course_id, quiz_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Quiz draft not found.")
+
+    update_quiz_draft(
+        course_id=course_id,
+        quiz_id=quiz_id,
+        patch={
+            "deployed": False,
+            "published": False,
+            "canvas_quiz_id": None,
+            "quiz_url": None,
+        },
+        created_by=request.session.get("user_name", "Instructor"),
+    )
+    return {"status": "success", "deployed": False}
+
+
+@router.post("/quizzes/{quiz_id}/agentic-feedback/preview")
+def preview_agentic_feedback_endpoint(
+    course_id: CourseIdDep,
+    canvas: CanvasClientDep,
+    quiz_id: str,
+    _: RequireLtiLaunchDep,
+    __: RequireTeacherDep,
+) -> dict:
+    """Generate student submission feedback preview for instructor review."""
+    draft = get_quiz_draft(course_id, quiz_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Quiz draft not found.")
+
+    canvas_quiz_id = draft.get("canvas_quiz_id") or draft.get("quiz_id")
+    if not canvas_quiz_id:
+        raise HTTPException(status_code=400, detail="Quiz has not been deployed to Canvas.")
+
+    try:
+        course = canvas.get_course(course_id)
+        submissions = fetch_quiz_submissions_with_answers(course, int(canvas_quiz_id))
+        content_questions = draft.get("questions") or []
+        mapping = (draft.get("agentic_feedback") or {}).get("questions") or []
+
+        parsed_subs = []
+        for sub in submissions:
+            sub_id = sub.get("id")
+            user_id = sub.get("user_id")
+            sub_data = sub.get("submission_data") or []
+            
+            payload = {}
+            if sub_data and mapping:
+                try:
+                    payload = build_submission_question_payload(
+                        sub_data, mapping, content_questions, model_id=draft.get("model_id")
+                    )
+                except Exception as p_exc:
+                    logger.warning("Error building payload for sub %s: %s", sub_id, p_exc)
+
+            q_list = []
+            for q_idx, q_item in enumerate(content_questions):
+                entry = payload.get(q_idx, {})
+                q_list.append({
+                    "q_index": q_idx,
+                    "question_id": q_item.get("id", q_idx),
+                    "question_text": q_item.get("question_text", f"Question {q_idx + 1}"),
+                    "student_answer": entry.get("student_answer", "Answer recorded"),
+                    "confidence": entry.get("confidence", "Normal"),
+                    "explanation": entry.get("explanation", ""),
+                    "score": entry.get("score", 1),
+                    "ai_feedback": entry.get("comment", "Great work on this topic!")
+                })
+
+            parsed_subs.append({
+                "submission_id": sub_id,
+                "user_id": user_id,
+                "user_name": f"Student #{user_id}",
+                "score": sub.get("score"),
+                "questions": q_list
+            })
+
+        return {
+            "quiz_id": quiz_id,
+            "quiz_title": draft.get("quiz_title", "Quiz Feedback Review"),
+            "canvas_quiz_id": int(canvas_quiz_id),
+            "questions": content_questions,
+            "submissions": parsed_subs
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error in POST /api/quizzes/%s/agentic-feedback/preview", quiz_id)
+        raise HTTPException(status_code=500, detail="Failed to load feedback preview.") from exc
+
+
+@router.post("/quizzes/{quiz_id}/agentic-feedback/approve")
+def approve_agentic_feedback_endpoint(
+    course_id: CourseIdDep,
+    canvas: CanvasClientDep,
+    quiz_id: str,
+    body: dict,
+    request: Request,
+    _: RequireLtiLaunchDep,
+    __: RequireTeacherDep,
+) -> dict:
+    """Push professor-approved feedback comments to Canvas student submissions."""
+    draft = get_quiz_draft(course_id, quiz_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Quiz draft not found.")
+
+    canvas_quiz_id = draft.get("canvas_quiz_id") or draft.get("quiz_id")
+    if not canvas_quiz_id:
+        raise HTTPException(status_code=400, detail="Quiz has not been deployed to Canvas.")
+
+    try:
+        course = canvas.get_course(course_id)
+        approved_subs = body.get("submissions") or []
+        count = 0
+
+        for item in approvedSubmissions if 'approvedSubmissions' in locals() else approved_subs:
+            sub_id = item.get("submission_id")
+            comments = item.get("comments") or {}
+            if sub_id and comments:
+                # Format payload into question_payload expected by Canvas comment writer
+                payload = {
+                    int(k) if str(k).isdigit() else k: {"comment": str(v)}
+                    for k, v in comments.items()
+                }
+                update_quiz_submission_comments(
+                    course,
+                    int(canvas_quiz_id),
+                    int(sub_id),
+                    attempt=1,
+                    question_payload=payload
+                )
+                count += 1
+
+        update_quiz_draft(
+            course_id=course_id,
+            quiz_id=quiz_id,
+            patch={
+                "agentic_feedback_last_run": time.time(),
+            },
+            created_by=request.session.get("user_name", "Instructor"),
+        )
+        return {"status": "success", "pushed_submissions": count}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Error in POST /api/quizzes/%s/agentic-feedback/approve", quiz_id)
+        raise HTTPException(status_code=500, detail="Failed to push approved feedback.") from exc
+
+
 @router.post("/quizzes/{quiz_id}/publish")
 def publish_quiz_endpoint(
     course_id: CourseIdDep,
@@ -573,3 +732,4 @@ def publish_quiz_endpoint(
     except Exception as exc:
         logger.exception("Error in POST /api/quizzes/%s/publish", quiz_id)
         raise HTTPException(status_code=500, detail="Failed to publish quiz.") from exc
+

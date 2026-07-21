@@ -2088,3 +2088,66 @@ input[type="range"] {
     color: var(--text-muted);
     text-align: right;
 }
+
+/* Global Floating Context Menu Portal */
+.global-quiz-menu {
+    position: fixed;
+    width: 215px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+    padding: 0.4rem 0;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: fadeIn 0.12s ease;
+}
+
+.global-quiz-menu .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: var(--text-body);
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    box-sizing: border-box;
+    text-decoration: none;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.global-quiz-menu .menu-item:hover {
+    background: var(--bg-subtle);
+    color: var(--brand-primary);
+}
+
+.global-quiz-menu .menu-item i {
+    width: 16px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.global-quiz-menu .menu-item:hover i {
+    color: var(--brand-primary);
+}
+
+.global-quiz-menu .menu-item.warning {
+    color: var(--danger);
+}
+
+.global-quiz-menu .menu-item.warning:hover {
+    background: var(--danger-bg);
+    color: var(--danger);
+}
+
+.global-quiz-menu .menu-item.warning i {
+    color: var(--danger);
+}
+
