@@ -10,13 +10,17 @@ def extract_lti_user_fields(launch_data: dict) -> dict[str, str | None]:
 
     user_role = None
     for role in roles:
-        if "Instructor" in role or "Teacher" in role:
+        role_str = str(role)
+        if any(kw in role_str for kw in ("Instructor", "Teacher", "Faculty", "Staff")):
             user_role = "Teacher"
             break
-        if "TeachingAssistant" in role:
+        if any(kw in role_str for kw in ("Administrator", "Admin", "SysAdmin", "ContentDeveloper")):
+            user_role = "Administrator"
+            break
+        if any(kw in role_str for kw in ("TeachingAssistant", "TA", "Assistant")):
             user_role = "Teaching Assistant"
             break
-        if "Learner" in role or "Student" in role:
+        if any(kw in role_str for kw in ("Learner", "Student")):
             user_role = "Student"
             break
 

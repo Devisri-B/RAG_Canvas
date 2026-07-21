@@ -1,4 +1,4 @@
-"""Pydantic models for Gemini structured quiz output."""
+"""Pydantic models for Gemini/OpenRouter structured quiz output."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class GeneratedAnswer(BaseModel):
     )
 
 
-class GeneratedQuestion(BaseModel):
+class DraftQuestion(BaseModel):
     question_name: str
     question_text: str
     question_type: Literal[
@@ -44,10 +44,18 @@ class GeneratedQuestion(BaseModel):
     )
 
 
-class WeeklyQuiz(BaseModel):
+# Alias for backward compatibility
+GeneratedQuestion = DraftQuestion
+
+
+class DraftQuiz(BaseModel):
     id: str | None = None
     quiz_title: str
-    questions: list[GeneratedQuestion]
+    questions: list[DraftQuestion]
+
+
+# Alias for backward compatibility
+WeeklyQuiz = DraftQuiz
 
 
 class GenerateQuizRequest(BaseModel):
@@ -61,6 +69,7 @@ class GenerateQuizRequest(BaseModel):
     matching_pairs: int = 4
     include_answer_feedback: bool = False
     include_agentic_feedback: bool = False
+    custom_instructions: str = ""
     model_id: str | None = None
 
 
@@ -82,7 +91,7 @@ class ModelsResponse(BaseModel):
 
 class DeployQuizRequest(BaseModel):
     module_id: str | int
-    quiz: WeeklyQuiz
+    quiz: DraftQuiz
     include_agentic_feedback: bool | None = None
 
 
@@ -94,9 +103,7 @@ class SwitchCourseRequest(BaseModel):
     course_id: int
 
 
-
-
-def validate_questions(quiz: WeeklyQuiz) -> None:
+def validate_questions(quiz: DraftQuiz) -> None:
     """Ensure each question matches its type requirements."""
     for i, q in enumerate(quiz.questions, start=1):
         if q.question_type == "essay_question":
@@ -131,7 +138,7 @@ def validate_questions(quiz: WeeklyQuiz) -> None:
             )
 
 
-def to_canvas_question(q: GeneratedQuestion) -> dict:
+def to_canvas_question(q: DraftQuestion) -> dict:
     """Map generated question to canvasapi create_question payload."""
     payload = {
         "question_name": q.question_name,
@@ -168,4 +175,3 @@ def to_canvas_question(q: GeneratedQuestion) -> dict:
         ]
         
     return payload
-

@@ -45,7 +45,7 @@ function populateModelSelect() {
 
     const autoOpt = document.createElement("option");
     autoOpt.value = "";
-    autoOpt.textContent = autoModelLabel ? `Auto (${autoModelLabel})` : "Auto";
+    autoOpt.textContent = "Auto";
     select.appendChild(autoOpt);
 
     if (!loadedModels.length) {
@@ -192,7 +192,10 @@ function refreshModules() {
 function onModuleChange() {
     const moduleSelect = document.getElementById("module-select");
     const selectedId = moduleSelect.value;
-    if (!selectedId) return;
+    if (!selectedId) {
+        updateLayoutSummary();
+        return;
+    }
 
     const selectedMod = loadedModules.find(m => String(m.id) === String(selectedId));
     const container = document.getElementById("material-list-container");
@@ -200,6 +203,7 @@ function onModuleChange() {
 
     if (!selectedMod || !selectedMod.items || selectedMod.items.length === 0) {
         container.innerHTML = `<p class="material-empty">No file attachments in this module.</p>`;
+        updateLayoutSummary();
         return;
     }
 
@@ -207,7 +211,7 @@ function onModuleChange() {
         const div = document.createElement("div");
         div.className = "material-item";
         div.innerHTML = `
-            <input type="checkbox" id="mat-${escapeAttr(item.id)}" value="${escapeAttr(item.id)}" checked>
+            <input type="checkbox" id="mat-${escapeAttr(item.id)}" value="${escapeAttr(item.id)}" checked onchange="updateLayoutSummary(); updateGenerateEnabled();">
             <label class="material-name" for="mat-${escapeAttr(item.id)}" style="margin: 0; text-transform: none; font-weight: normal; cursor: pointer; flex: 1;">
                 ${escapeHtml(item.title)}
             </label>
@@ -219,6 +223,7 @@ function onModuleChange() {
     const selectedText = moduleSelect.options[moduleSelect.selectedIndex].text;
     const prefix = selectedText.split(":")[0];
     document.getElementById("quiz-title").value = `${prefix} Quiz`;
+    updateLayoutSummary();
 }
 
 /* ---------- Question type rows + layout summary ---------- */
@@ -246,6 +251,37 @@ function updateLayoutSummary() {
     const pLabel = totalPoints === 1 ? "point" : "points";
     const el = document.getElementById("layout-summary-text");
     if (el) el.innerHTML = `${totalQs} ${qLabel} &bull; ${totalPoints} ${pLabel} total`;
+
+    // Update Pre-generation summary card in right panel
+    const moduleSelect = document.getElementById("module-select");
+    const modText = (moduleSelect && moduleSelect.selectedIndex >= 0 && moduleSelect.value)
+        ? moduleSelect.options[moduleSelect.selectedIndex].text
+        : "None selected";
+    const pregenMod = document.getElementById("pregen-module");
+    if (pregenMod) pregenMod.textContent = modText;
+
+    const checkedBoxes = document.querySelectorAll("#material-list-container input[type='checkbox']:checked");
+    const pregenFile = document.getElementById("pregen-file");
+    if (pregenFile) {
+        if (checkedBoxes.length === 0) {
+            pregenFile.textContent = "None selected";
+        } else if (checkedBoxes.length === 1) {
+            const label = checkedBoxes[0].closest(".material-item")?.querySelector(".material-name")?.textContent;
+            pregenFile.textContent = label ? label.trim() : "1 file selected";
+        } else {
+            pregenFile.textContent = `${checkedBoxes.length} files selected`;
+        }
+    }
+
+    const titleVal = document.getElementById("quiz-title")?.value.trim() || "Week 1 Quiz";
+    const pregenTitle = document.getElementById("pregen-title");
+    if (pregenTitle) pregenTitle.textContent = titleVal;
+
+    const pregenStruct = document.getElementById("pregen-structure");
+    if (pregenStruct) pregenStruct.innerHTML = `${totalQs} ${qLabel} &bull; ${totalPoints} ${pLabel} total`;
+
+    const pregenModel = document.getElementById("pregen-model");
+    if (pregenModel) pregenModel.textContent = selectedModelLabel();
 }
 
 /** Product always uses AI feedback + Auto model; no professor toggles. */
@@ -386,7 +422,9 @@ async function triggerQuizGeneration() {
     animateSteps();
 
     try {
-        // Always AI feedback; model always Auto (no model_id override).
+        const customInstructions = document.getElementById("custom-instructions")?.value.trim() || "";
+        const modelId = selectedModelId();
+
         const body = {
             module_id: moduleId,
             quiz_title: quizTitle,
@@ -405,6 +443,8 @@ async function triggerQuizGeneration() {
             matching_pairs: matchingPairs,
             include_answer_feedback: false,
             include_agentic_feedback: true,
+            custom_instructions: customInstructions,
+            model_id: modelId,
         };
 
         const res = await fetch("/api/generate-quiz", {
@@ -517,63 +557,56 @@ function appendFeedbackFollowupCard(container, item, parentQuestion) {
     container.appendChild(card);
 }
 
+// Shared global state variables (currentDraftQuiz, currentActiveQuiz) are declared in main.js
+
+
 function updatePreviewMetaTag(agenticOn) {
-    const totalPoints = currentActiveQuiz.questions.reduce(
+    if (!currentDraftQuiz || !currentDraftQuiz.questions) return;
+    const questions = currentDraftQuiz.questions;
+    const totalPoints = questions.reduce(
         (sum, q) => sum + parseInt(q.points_possible || 1, 10),
         0,
     );
-    const layout = canvasTakeLayout(currentActiveQuiz.questions, agenticOn);
+    const contentCount = questions.length;
     const metaEl = document.getElementById("preview-meta-tag");
-    if (agenticOn && layout.feedbackCount > 0) {
-        metaEl.innerText =
-            `${layout.canvasItemCount} Canvas items ` +
-            `(${layout.contentCount} content + ${layout.feedbackCount} feedback) • ${totalPoints} Points`;
-    } else {
-        metaEl.innerText = `${layout.contentCount} Questions • ${totalPoints} Points total`;
+    if (metaEl) {
+        metaEl.innerText = `${contentCount} Questions • ${totalPoints} Points total`;
     }
     const deployHint = document.getElementById("deploy-canvas-count");
     if (deployHint) {
-        if (agenticOn && layout.feedbackCount > 0) {
-            deployHint.hidden = false;
-            deployHint.textContent =
-                `${layout.canvasItemCount} Canvas items ` +
-                `(${layout.contentCount} content + ${layout.feedbackCount} feedback)`;
-        } else {
-            deployHint.hidden = true;
-            deployHint.textContent = "";
-        }
+        deployHint.hidden = false;
+        deployHint.textContent = `Includes student confidence & explanation prompts in Canvas`;
     }
 }
 
-function renderQuizUI() {
-    if (!currentActiveQuiz) return;
+function renderDraftEditor() {
+    currentDraftQuiz = currentDraftQuiz || currentActiveQuiz;
+    if (!currentDraftQuiz) return;
+    currentActiveQuiz = currentDraftQuiz;
 
     syncFeedbackToggles({ render: false });
-    // Always AI feedback for this product.
-    const agenticOn = true;
-    currentActiveQuiz.includes_agentic_feedback = true;
+    currentDraftQuiz.includes_agentic_feedback = true;
 
-    document.getElementById("preview-quiz-title").innerText = currentActiveQuiz.quiz_title;
-    updatePreviewMetaTag(agenticOn);
-    showPreviewModelLabel(currentActiveQuiz.model_label || null);
+    const titleEl = document.getElementById("preview-quiz-title");
+    if (titleEl) {
+        if (currentDraftQuiz.deployed) {
+            titleEl.innerHTML = `${escapeHtml(currentDraftQuiz.quiz_title)} <span class="type-badge badge-matching" style="margin-left: 0.5rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase;"><i class="fa-solid fa-circle-check"></i> Deployed</span>`;
+        } else {
+            titleEl.innerText = currentDraftQuiz.quiz_title;
+        }
+    }
+    updatePreviewMetaTag(true);
+    showPreviewModelLabel(currentDraftQuiz.model_label || null);
+
+    // Hide pre-generation placeholder box
+    const placeholder = document.getElementById("draft-editor-placeholder") || document.getElementById("preview-placeholder");
+    if (placeholder) placeholder.style.display = "none";
 
     const container = document.getElementById("questions-list-container");
     container.innerHTML = "";
 
-    const layout = canvasTakeLayout(currentActiveQuiz.questions, agenticOn);
-
-    layout.items.forEach((item) => {
-        if (item.kind !== "content") {
-            appendFeedbackFollowupCard(
-                container,
-                item,
-                currentActiveQuiz.questions[item.qIndex],
-            );
-            return;
-        }
-
-        const qIndex = item.qIndex;
-        const q = currentActiveQuiz.questions[qIndex];
+    // Render ONLY actual content questions (Q1..QN)
+    (currentDraftQuiz.questions || []).forEach((q, qIndex) => {
         const card = document.createElement("div");
         card.className = "question-card";
         card.id = `q-card-${qIndex}`;
@@ -615,8 +648,7 @@ function renderQuizUI() {
 
         const points = q.points_possible || 1;
         const ptLabel = points === 1 ? "pt" : "pts";
-
-        const numberLabel = `<span class="canvas-q-label">Q${item.canvasNumber}</span>`;
+        const numberLabel = `<span class="canvas-q-label">Q${qIndex + 1}</span>`;
 
         card.innerHTML = `
             <div class="question-meta">
@@ -675,27 +707,45 @@ function renderQuizUI() {
         container.appendChild(card);
     });
 
-    document.getElementById("quiz-preview-content").style.display = "flex";
+    const previewContent = document.getElementById("draft-editor-content") || document.getElementById("quiz-preview-content");
+    if (previewContent) previewContent.style.display = "flex";
+
+    // Update bottom deploy button state
+    const deployBtn = document.querySelector("button[onclick='deployQuiz()']");
+    if (deployBtn) {
+        if (currentDraftQuiz.deployed) {
+            deployBtn.disabled = true;
+            deployBtn.innerHTML = `<i class="fa-solid fa-check"></i> Deployed to Canvas`;
+        } else {
+            deployBtn.disabled = false;
+            deployBtn.innerHTML = `Deploy to Canvas`;
+        }
+    }
 }
 
+// Aliases for compatibility
+function renderQuizUI() { return renderDraftEditor(); }
+
 function toggleQuestionFeedback(qIndex, enabled) {
-    if (!currentActiveQuiz || !currentActiveQuiz.questions[qIndex]) return;
-    currentActiveQuiz.questions[qIndex].feedback_enabled = enabled;
-    renderQuizUI();
+    const draft = currentDraftQuiz || currentActiveQuiz;
+    if (!draft || !draft.questions[qIndex]) return;
+    draft.questions[qIndex].feedback_enabled = enabled;
+    renderDraftEditor();
 }
 
 function toggleEditForm(qIndex) {
     const form = document.getElementById(`editor-form-${qIndex}`);
+    if (!form) return;
     const isVisible = form.style.display === "block";
     form.style.display = isVisible ? "none" : "block";
 }
 
 function saveQuestionEdit(qIndex) {
+    const draft = currentDraftQuiz || currentActiveQuiz;
+    if (!draft) return;
     const qText = document.getElementById(`edit-qtext-${qIndex}`).value;
-    const q = currentActiveQuiz.questions[qIndex];
+    const q = draft.questions[qIndex];
     q.question_text = qText;
-
-    // Static correct/incorrect comments are no longer edited in the UI.
     q.correct_comments = "";
     q.incorrect_comments = "";
 
@@ -718,46 +768,58 @@ function saveQuestionEdit(qIndex) {
         });
     }
 
-    renderQuizUI();
+    renderDraftEditor();
 }
 
-function resetPreview() {
+function clearDraftEditor() {
+    currentDraftQuiz = null;
     currentActiveQuiz = null;
-    document.getElementById("quiz-preview-content").style.display = "none";
-    document.getElementById("preview-placeholder").style.display = "flex";
-    document.getElementById("success-banner").style.display = "none";
+    const previewContent = document.getElementById("draft-editor-content") || document.getElementById("quiz-preview-content");
+    if (previewContent) previewContent.style.display = "none";
+    const placeholder = document.getElementById("draft-editor-placeholder") || document.getElementById("preview-placeholder");
+    if (placeholder) placeholder.style.display = "flex";
+    const banner = document.getElementById("success-banner");
+    if (banner) banner.style.display = "none";
+    const deployBtn = document.querySelector("button[onclick='deployQuiz()']");
+    if (deployBtn) {
+        deployBtn.disabled = false;
+        deployBtn.innerHTML = `Deploy to Canvas`;
+    }
 }
+
+// Alias for compatibility
+function resetPreview() { return clearDraftEditor(); }
 
 /* ---------- Deploy ---------- */
 
 async function deployQuiz() {
-    if (!currentActiveQuiz) return;
+    const draft = currentDraftQuiz || currentActiveQuiz;
+    if (!draft) return;
 
     const moduleSelect = document.getElementById("module-select");
-    const moduleId = moduleSelect.value;
+    const moduleId = moduleSelect ? moduleSelect.value : null;
     if (!moduleId) {
         alert("Please select a module first.");
         return;
     }
 
     const deployBtn = document.querySelector("button[onclick='deployQuiz()']");
-    const originalHTML = deployBtn ? deployBtn.innerHTML : "Deploy to Canvas";
     if (deployBtn) {
         deployBtn.disabled = true;
-        deployBtn.textContent = "Deploying…";
+        deployBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Deploying…`;
     }
 
     try {
-        if (currentActiveQuiz.questions) {
-            currentActiveQuiz.questions.forEach(q => { q.feedback_enabled = true; });
+        if (draft.questions) {
+            draft.questions.forEach(q => { q.feedback_enabled = true; });
         }
-        currentActiveQuiz.includes_agentic_feedback = true;
+        draft.includes_agentic_feedback = true;
         const res = await fetch("/api/deploy-quiz", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 module_id: moduleId,
-                quiz: currentActiveQuiz,
+                quiz: draft,
                 include_agentic_feedback: true
             })
         });
@@ -768,37 +830,42 @@ async function deployQuiz() {
         }
 
         const data = await res.json();
-        const draftId = currentActiveQuiz && currentActiveQuiz.id
-            ? String(currentActiveQuiz.id)
-            : "";
+        draft.deployed = true;
+        draft.canvas_quiz_id = data.quiz_id;
+        draft.quiz_url = data.quiz_url;
+        currentDraftQuiz = draft;
+        currentActiveQuiz = draft;
+
+        renderDraftEditor();
 
         const banner = document.getElementById("success-banner");
-        banner.style.display = "flex";
-        let actions = `
-            <a href="${escapeAttr(data.quiz_url)}" target="_blank" class="btn btn-secondary btn-sm btn-link">View in Canvas</a>`;
-        if (draftId) {
-            actions = `
-            <a href="#" class="action-link" data-quiz-id="${escapeAttr(draftId)}"
-                data-quiz-title="${escapeAttr((currentActiveQuiz && currentActiveQuiz.quiz_title) || "Quiz")}"
-                onclick="openQuizModal(this.dataset.quizId, this.dataset.quizTitle); return false;">Results</a>
-            ` + actions;
+        if (banner) {
+            banner.style.display = "flex";
+            banner.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.65rem;">
+                        <i class="fa-solid fa-circle-check" style="font-size: 1.25rem; color: var(--success);"></i>
+                        <div>
+                            <strong style="color: var(--text-body);">Deployed to Canvas</strong>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.1rem;">
+                                Quiz sent to Canvas. Publish in Canvas when ready for students.
+                            </div>
+                        </div>
+                    </div>
+                    <a href="${escapeAttr(data.quiz_url)}" target="_blank" class="btn btn-primary btn-sm" style="text-decoration: none; white-space: nowrap;">
+                        Open in Canvas <i class="fa-solid fa-arrow-up-right-from-square" style="font-size: 0.75rem;"></i>
+                    </a>
+                </div>
+            `;
+            banner.scrollIntoView({ behavior: "smooth" });
         }
-        banner.innerHTML = `
-            <div>
-                <strong>Sent to Canvas.</strong> Publish when ready. After students submit, open Quizzes and click Generate feedback.
-                <div class="banner-actions">${actions}</div>
-            </div>
-        `;
-
-        document.getElementById("success-banner").scrollIntoView({ behavior: "smooth" });
 
     } catch (err) {
         console.error("Error deploying quiz:", err);
         alert(`Could not deploy quiz: ${err.message}`);
-    } finally {
         if (deployBtn) {
             deployBtn.disabled = false;
-            deployBtn.innerHTML = originalHTML;
+            deployBtn.innerHTML = `Deploy to Canvas`;
         }
     }
 }

@@ -51,6 +51,7 @@ Bare-metal: `uv run main.py` after the same `.env` setup.
 - Do not log tokens, OAuth codes, or extracted course text.
 - Do not disable LTI/OAuth validation or CSRF checks.
 - Do not commit secrets — grep diffs before merge.
+- Always run static syntax checks after JS changes (`node -c static/js/*.js`) and Python edits (`uv run python -m py_compile ...`) before claiming task completion.
 
 ## LTI endpoints (do not rename casually)
 

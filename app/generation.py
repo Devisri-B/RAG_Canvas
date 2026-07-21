@@ -8,7 +8,7 @@ import time
 from app.llm.catalog import ModelEntry, resolve_model
 from app.llm.errors import format_llm_error
 from app.llm.registry import generate_json as provider_generate_json
-from app.schemas import WeeklyQuiz, validate_questions
+from app.schemas import DraftQuiz, validate_questions
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ def _build_prompt(
     mc_options: int,
     matching_pairs: int,
     include_answer_feedback: bool,
+    custom_instructions: str = "",
 ) -> str:
     requirements = []
     total_qs = num_mc + num_tf + num_matching
@@ -48,6 +49,11 @@ def _build_prompt(
             f"2) answer_match_left: the left-side text (exactly the same as answer_text), "
             f"3) answer_match_right: the correct matching right-side text. "
             f"Provide at least {matching_pairs} matching pairs per matching question."
+        )
+
+    if custom_instructions and custom_instructions.strip():
+        requirements.append(
+            f"- Instructor specific guidance/focus: {custom_instructions.strip()}"
         )
 
     req_str = "\n".join(requirements)
@@ -101,8 +107,9 @@ def generate_weekly_quiz(
     mc_options: int = 4,
     matching_pairs: int = 4,
     include_answer_feedback: bool = False,
+    custom_instructions: str = "",
     model_id: str | None = None,
-) -> tuple[WeeklyQuiz, ModelEntry]:
+) -> tuple[DraftQuiz, ModelEntry]:
     """Generate a quiz using the selected model from the catalog (or auto-select)."""
     entry = resolve_model(model_id)
 
@@ -115,15 +122,16 @@ def generate_weekly_quiz(
         mc_options=mc_options,
         matching_pairs=matching_pairs,
         include_answer_feedback=include_answer_feedback,
+        custom_instructions=custom_instructions,
     )
 
     logger.info("Generating quiz via %s (%s / %s)", entry.label, entry.provider, entry.model)
-    schema = WeeklyQuiz.model_json_schema()
+    schema = DraftQuiz.model_json_schema()
     t0 = time.perf_counter()
     text = provider_generate_json(entry, prompt, schema)
     llm_ms = (time.perf_counter() - t0) * 1000
 
-    quiz = WeeklyQuiz.model_validate_json(text)
+    quiz = DraftQuiz.model_validate_json(text)
     validate_questions(quiz)
 
     # Enforce per-type points server-side; never trust the LLM for point values.

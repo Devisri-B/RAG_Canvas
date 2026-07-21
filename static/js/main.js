@@ -3,6 +3,7 @@
 let loadedModules = [];
 let loadedCourses = [];
 let loadedModels = [];
+let currentDraftQuiz = null;
 let currentActiveQuiz = null;
 let currentCourseId = null;
 let modulesReady = false;
@@ -139,8 +140,8 @@ function switchView(view) {
     const heading = document.getElementById("page-heading");
     const sub = document.getElementById("page-subheading");
     if (view === "quizzes") {
-        if (heading) heading.textContent = "Quizzes";
-        if (sub) sub.textContent = "Quizzes for this course.";
+        if (heading) heading.textContent = "Quiz Library";
+        if (sub) sub.textContent = "Saved and deployed quizzes for this course.";
         fetchQuizzesOverview();
     } else {
         if (heading) heading.textContent = "Create quiz";

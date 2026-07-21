@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=10">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=11">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -94,72 +94,45 @@
                     <div class="form-block">
                         <span class="form-block-label">Structure</span>
                         <div class="form-group form-group-tight">
-                            <label for="quiz-title">Title</label>
-                            <input type="text" id="quiz-title" value="Week 1 Quiz" placeholder="Quiz title">
+                            <label for="quiz-title">Quiz Title</label>
+                            <input type="text" id="quiz-title" value="Week 1 Quiz" placeholder="Quiz title" oninput="updateLayoutSummary()">
                         </div>
-                        <div class="qtype-list qtype-list-compact">
-                            <div class="qtype-row">
-                                <div class="qtype-head">
-                                    <button type="button" class="qtype-toggle" onclick="toggleQtype('mc')" aria-expanded="false">
-                                        <i class="fa-solid fa-chevron-right" id="qtype-chevron-mc"></i>
-                                        <span>Multiple Choice</span>
-                                    </button>
-                                    <input type="number" id="count-mc" class="qtype-count" min="0" max="25" value="4"
-                                        aria-label="Multiple choice question count" oninput="updateLayoutSummary()">
-                                </div>
-                                <div class="qtype-body" id="qtype-body-mc" hidden>
-                                    <div class="settings-grid">
-                                        <div class="form-group form-group-tight">
-                                            <label for="points-mc">Points</label>
-                                            <input type="number" id="points-mc" min="1" max="50" value="1" oninput="updateLayoutSummary()">
-                                        </div>
-                                        <div class="form-group form-group-tight">
-                                            <label for="mc-options">Options</label>
-                                            <input type="number" id="mc-options" min="2" max="6" value="4">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="qtype-row">
-                                <div class="qtype-head">
-                                    <button type="button" class="qtype-toggle" onclick="toggleQtype('tf')" aria-expanded="false">
-                                        <i class="fa-solid fa-chevron-right" id="qtype-chevron-tf"></i>
-                                        <span>True / False</span>
-                                    </button>
-                                    <input type="number" id="count-tf" class="qtype-count" min="0" max="25" value="2"
-                                        aria-label="True/false question count" oninput="updateLayoutSummary()">
-                                </div>
-                                <div class="qtype-body" id="qtype-body-tf" hidden>
-                                    <div class="settings-grid">
-                                        <div class="form-group form-group-tight">
-                                            <label for="points-tf">Points</label>
-                                            <input type="number" id="points-tf" min="1" max="50" value="1" oninput="updateLayoutSummary()">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="qtype-row">
-                                <div class="qtype-head">
-                                    <button type="button" class="qtype-toggle" onclick="toggleQtype('matching')" aria-expanded="false">
-                                        <i class="fa-solid fa-chevron-right" id="qtype-chevron-matching"></i>
-                                        <span>Matching</span>
-                                    </button>
-                                    <input type="number" id="count-matching" class="qtype-count" min="0" max="25" value="2"
-                                        aria-label="Matching question count" oninput="updateLayoutSummary()">
-                                </div>
-                                <div class="qtype-body" id="qtype-body-matching" hidden>
-                                    <div class="settings-grid">
-                                        <div class="form-group form-group-tight">
-                                            <label for="points-matching">Points</label>
-                                            <input type="number" id="points-matching" min="1" max="50" value="1" oninput="updateLayoutSummary()">
-                                        </div>
-                                        <div class="form-group form-group-tight">
-                                            <label for="matching-pairs">Pairs</label>
-                                            <input type="number" id="matching-pairs" min="3" max="10" value="4">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="form-group form-group-tight">
+                            <label for="custom-instructions">Custom Guidance / Focus Areas (Optional)</label>
+                            <textarea id="custom-instructions" rows="2" class="custom-prompt-input"
+                                placeholder="e.g. Focus on OSI vs TCP/IP layer differences and Big-O costs. Avoid slide count trivia."></textarea>
+                        </div>
+                        <div class="qmatrix-container">
+                            <table class="qmatrix-table">
+                                <thead>
+                                    <tr>
+                                        <th>Question Type</th>
+                                        <th>Count</th>
+                                        <th>Pts/Q</th>
+                                        <th>Options / Pairs</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="qtype-name"><i class="fa-solid fa-list-ul"></i> Multiple Choice</td>
+                                        <td><input type="number" id="count-mc" class="matrix-input" min="0" max="25" value="4" aria-label="Multiple choice count" oninput="updateLayoutSummary()"></td>
+                                        <td><input type="number" id="points-mc" class="matrix-input" min="1" max="50" value="1" aria-label="Multiple choice points" oninput="updateLayoutSummary()"></td>
+                                        <td><input type="number" id="mc-options" class="matrix-input" min="2" max="6" value="4" aria-label="Multiple choice options"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="qtype-name"><i class="fa-solid fa-circle-check"></i> True / False</td>
+                                        <td><input type="number" id="count-tf" class="matrix-input" min="0" max="25" value="2" aria-label="True false count" oninput="updateLayoutSummary()"></td>
+                                        <td><input type="number" id="points-tf" class="matrix-input" min="1" max="50" value="1" aria-label="True false points" oninput="updateLayoutSummary()"></td>
+                                        <td><span class="matrix-fixed-cell">&mdash;</span></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="qtype-name"><i class="fa-solid fa-diagram-project"></i> Matching</td>
+                                        <td><input type="number" id="count-matching" class="matrix-input" min="0" max="25" value="2" aria-label="Matching count" oninput="updateLayoutSummary()"></td>
+                                        <td><input type="number" id="points-matching" class="matrix-input" min="1" max="50" value="1" aria-label="Matching points" oninput="updateLayoutSummary()"></td>
+                                        <td><input type="number" id="matching-pairs" class="matrix-input" min="3" max="10" value="4" aria-label="Matching pairs"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                         <div class="layout-summary" id="layout-summary">
                             <span id="layout-summary-text">0 questions &bull; 0 points total</span>
@@ -167,15 +140,23 @@
                     </div>
 
                     <div class="form-block form-block-last">
-                        <!-- Research defaults: AI feedback always on, model always Auto (not shown) -->
+                        <div class="form-group form-group-tight model-select-group">
+                            <label for="model-select">AI Generation Model</label>
+                            <div class="select-wrapper">
+                                <select id="model-select" aria-label="AI Model" onchange="updateLayoutSummary()">
+                                    <option value="">Auto</option>
+                                </select>
+                            </div>
+                        </div>
                         <input type="checkbox" id="include-agentic-feedback" checked hidden tabindex="-1" aria-hidden="true">
                         <input type="checkbox" id="include-answer-feedback" hidden tabindex="-1" aria-hidden="true">
-                        <select id="model-select" hidden tabindex="-1" aria-hidden="true">
-                            <option value="">Auto</option>
-                        </select>
                         <button class="btn btn-primary btn-generate-sticky" id="btn-generate" onclick="triggerQuizGeneration()" disabled>
                             Generate Quiz
                         </button>
+                        <div class="draft-safety-badge">
+                            <i class="fa-solid fa-shield-halved"></i>
+                            <span>Draft Mode &bull; Saved in EasyLearn. Will <strong>NOT</strong> post to Canvas until you review and click Deploy.</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -200,8 +181,11 @@
                     </div>
 
                     <div class="preview-placeholder" id="preview-placeholder">
-                        <h3>Preview</h3>
-                        <p>Generate a quiz to preview questions here.</p>
+                        <div class="preview-placeholder-inner">
+                            <i class="fa-solid fa-wand-magic-sparkles placeholder-icon"></i>
+                            <h3>Quiz draft will appear here.</h3>
+                            <p>Review your selected course material and quiz configuration, then click <strong>Generate Quiz</strong>.</p>
+                        </div>
                     </div>
 
                     <div class="quiz-preview-content" id="quiz-preview-content">
@@ -272,11 +256,11 @@
         </div>
     </div>
 
-    <script src="/static/js/util.js?v=8"></script>
-    <script src="/static/js/generator.js?v=8"></script>
-    <script src="/static/js/library.js?v=8"></script>
-    <script src="/static/js/quiz-modal.js?v=8"></script>
-    <script src="/static/js/main.js?v=8"></script>
-    <script src="/static/js/theme-sync.js?v=8"></script>
+    <script src="/static/js/util.js?v=15"></script>
+    <script src="/static/js/quiz-builder.js?v=15"></script>
+    <script src="/static/js/library.js?v=15"></script>
+    <script src="/static/js/quiz-modal.js?v=15"></script>
+    <script src="/static/js/main.js?v=15"></script>
+    <script src="/static/js/theme-sync.js?v=15"></script>
 </body>
 </html>

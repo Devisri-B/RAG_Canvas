@@ -58,7 +58,9 @@ def resolve_canvas_client(request: Request):
     return get_canvas(token=user_token)
 
 
-_TEACHING_ROLES = frozenset({"Teacher", "Instructor", "Teaching Assistant"})
+_TEACHING_ROLES = frozenset(
+    {"Teacher", "Instructor", "Teaching Assistant", "Administrator", "Admin", "ContentDeveloper"}
+)
 
 
 def require_teacher(request: Request) -> None:

@@ -959,13 +959,190 @@ textarea:focus {
     align-items: center;
     gap: 0.55rem;
     padding: 0.65rem 0.85rem;
-    margin-bottom: 1.1rem;
+    margin-bottom: 0.85rem;
     background: var(--info-bg);
     border: 1px solid #B9D4E8;
     border-radius: 6px;
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--brand-primary);
+}
+
+/* Custom Prompt Textarea */
+.custom-prompt-input {
+    resize: vertical;
+    min-height: 52px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+/* Question Type Matrix Table */
+.qmatrix-container {
+    margin-bottom: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg-surface);
+}
+
+.qmatrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.qmatrix-table th {
+    background: var(--bg-subtle);
+    padding: 0.45rem 0.55rem 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--brand-primary);
+    text-align: center;
+}
+
+.qmatrix-table th:first-child {
+    text-align: left;
+    padding-left: 0.65rem;
+}
+
+.qmatrix-table td {
+    padding: 0.35rem 0.45rem;
+    border-bottom: 1px solid var(--border-light);
+    text-align: center;
+    vertical-align: middle;
+}
+
+.qmatrix-table tr:last-child td {
+    border-bottom: none;
+}
+
+.qmatrix-table .qtype-name {
+    text-align: left;
+    padding-left: 0.65rem;
+    font-weight: 600;
+    color: var(--text-body);
+    white-space: nowrap;
+}
+
+.qmatrix-table .qtype-name i {
+    width: 16px;
+    color: var(--brand-primary);
+    margin-right: 0.25rem;
+}
+
+.qmatrix-table input.matrix-input {
+    width: 52px;
+    padding: 0.25rem 0.35rem;
+    font-size: 0.82rem;
+    text-align: center;
+    border-radius: 4px;
+}
+
+.matrix-fixed-cell {
+    display: inline-block;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* AI Model Select Group & Draft Safety Badge */
+.model-select-group {
+    margin-bottom: 0.65rem;
+}
+
+.draft-safety-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    background: rgba(3, 116, 181, 0.05);
+    border: 1px solid rgba(3, 116, 181, 0.2);
+    border-radius: 4px;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    color: var(--text-body);
+}
+
+.draft-safety-badge i {
+    color: var(--brand-primary);
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.preview-placeholder-inner {
+    text-align: center;
+    max-width: 360px;
+    margin: 0 auto;
+}
+
+.placeholder-icon {
+    font-size: 2rem;
+    color: var(--brand-primary);
+    margin-bottom: 0.75rem;
+    opacity: 0.85;
+}
+
+.pregen-header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.4rem;
+}
+
+.pregen-icon {
+    font-size: 1.4rem;
+    color: var(--brand-primary);
+}
+
+.pregen-header h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-body);
+    margin: 0;
+}
+
+.pregen-subtext {
+    font-size: 0.83rem;
+    color: var(--text-muted);
+    margin-bottom: 1.1rem;
+    line-height: 1.4;
+}
+
+.pregen-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 0.85rem 1rem;
+}
+
+.pregen-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.83rem;
+}
+
+.pregen-label {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.pregen-val {
+    color: var(--text-body);
+    font-weight: 700;
+    text-align: right;
+    max-width: 260px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .layout-summary i {

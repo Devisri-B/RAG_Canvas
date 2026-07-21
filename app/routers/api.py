@@ -307,6 +307,7 @@ def api_generate_quiz(
             mc_options=body.mc_options,
             matching_pairs=body.matching_pairs,
             include_answer_feedback=include_answer_feedback,
+            custom_instructions=body.custom_instructions,
             model_id=model_entry.id,
         )
         if body.quiz_title:

@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from .agentic_feedback import build_agentic_meta_questions
-from .schemas import GeneratedQuestion, WeeklyQuiz, to_canvas_question
+from .schemas import DraftQuestion, DraftQuiz, to_canvas_question
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def find_module_by_id_or_name(course, module_id_or_name: str | int):
     )
 
 
-def _question_for_deploy(q: GeneratedQuestion, *, strip_static_feedback: bool) -> GeneratedQuestion:
+def _question_for_deploy(q: DraftQuestion, *, strip_static_feedback: bool) -> DraftQuestion:
     if not strip_static_feedback:
         return q
     return q.model_copy(update={"correct_comments": "", "incorrect_comments": ""})
@@ -37,7 +37,7 @@ def _question_for_deploy(q: GeneratedQuestion, *, strip_static_feedback: bool) -
 def deploy_quiz_to_canvas(
     course,
     module_id_or_name: str | int,
-    payload: WeeklyQuiz,
+    payload: DraftQuiz,
     *,
     include_agentic_feedback: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
