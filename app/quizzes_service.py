@@ -15,9 +15,14 @@ from app.canvas_courses import (
     update_quiz_submission_comments,
 )
 from app.agentic_feedback import build_submission_question_payload
-from app.feedback import aggregate_feedback, is_feedback_question
 from app.quiz_statistics import parse_quiz_statistics
-from app.storage import get_course_dir, get_quiz_draft, list_quizzes, write_json_atomic
+from app.storage import (
+    get_course_dir,
+    get_quiz_draft,
+    list_quizzes,
+    update_quiz_draft,
+    write_json_atomic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,17 +130,33 @@ def build_quizzes_overview(
     summaries: list[dict[str, Any]] = []
     for row in list_quizzes(course_id):
         full = get_quiz_draft(course_id, row["id"]) or {}
-        summaries.append(
-            {
-                **row,
-                "canvas_quiz_id": full.get("canvas_quiz_id") or full.get("quiz_id"),
-                "module_id": full.get("module_id"),
-                "module_name": full.get("module_name"),
-                "includes_feedback": full.get("includes_feedback", False),
-                "includes_agentic_feedback": full.get("includes_agentic_feedback", False),
-                "published": full.get("published", False),
-            }
-        )
+        processed = full.get("agentic_feedback_processed") or {}
+        canvas_quiz_id = full.get("canvas_quiz_id") or full.get("quiz_id")
+        feedback_done = len(processed) if isinstance(processed, dict) else 0
+        entry: dict[str, Any] = {
+            **row,
+            "canvas_quiz_id": canvas_quiz_id,
+            "module_id": full.get("module_id"),
+            "module_name": full.get("module_name"),
+            "includes_agentic_feedback": full.get(
+                "includes_agentic_feedback", True
+            ),
+            "published": full.get("published", False),
+            "feedback_done": feedback_done,
+            "submission_count": None,
+            "feedback_pending": None,
+        }
+        # Prefer last-known Canvas stats (no extra API call on list load).
+        if canvas_quiz_id:
+            try:
+                cached = get_cached_stats(course_id, int(canvas_quiz_id))
+                if cached and cached.get("available"):
+                    sub_n = int(cached.get("submission_count") or 0)
+                    entry["submission_count"] = sub_n
+                    entry["feedback_pending"] = max(0, sub_n - feedback_done)
+            except (TypeError, ValueError):
+                pass
+        summaries.append(entry)
 
     deployed = [s for s in summaries if s.get("canvas_quiz_id")]
     if deployed:
@@ -179,32 +200,27 @@ def get_quiz_stats(course, canvas, course_id: int, canvas_quiz_id: int) -> dict[
     return result
 
 
-def get_quiz_feedback_summary(course, canvas_quiz_id: int) -> dict[str, Any]:
-    """Aggregate end-of-quiz survey Likert responses from Canvas submissions."""
-    from app.canvas_courses import fetch_quiz_questions
-
-    questions = fetch_quiz_questions(course, canvas_quiz_id)
-    feedback_questions = [q for q in questions if is_feedback_question(str(q.get("question_name", "")))]
-    if not feedback_questions:
-        return {"canvas_quiz_id": canvas_quiz_id, "has_feedback": False, "questions": []}
-
-    submissions = fetch_quiz_submissions_with_answers(course, canvas_quiz_id)
-    aggregated = aggregate_feedback(questions, submissions)
-    return {
-        "canvas_quiz_id": canvas_quiz_id,
-        "has_feedback": True,
-        "questions": aggregated,
-    }
-
-
 def process_agentic_feedback(
     course,
     course_id: int,
     draft: dict[str, Any],
     *,
     force: bool = False,
+    draft_quiz_id: str | None = None,
+    max_submissions: int | None = None,
 ) -> dict[str, Any]:
-    """Generate and write personalized comments for quiz submissions."""
+    """Generate and write personalized comments for quiz submissions.
+
+    Designed for class-scale batches (~100):
+    - Skips already-processed submission IDs unless ``force``
+    - Checkpoints ``agentic_feedback_processed`` every few successes so a kill
+      mid-batch can resume without redoing finished work
+    - Backs off briefly on rate-limit-style errors, then continues
+    - Optional ``max_submissions`` caps work per request (chunked runs)
+
+    ``draft_quiz_id`` is the EasyLearn draft id (disk key). Falls back to
+    ``draft["id"]`` when omitted.
+    """
     if not draft.get("includes_agentic_feedback"):
         raise ValueError("This quiz does not have agentic feedback enabled.")
 
@@ -222,21 +238,50 @@ def process_agentic_feedback(
     content_questions = draft.get("questions") or []
     model_id = draft.get("model_id")
     processed: dict[str, Any] = dict(draft.get("agentic_feedback_processed") or {})
+    easylearn_quiz_id = draft_quiz_id or draft.get("id")
 
     submissions = fetch_quiz_submissions_with_answers(course, int(canvas_quiz_id))
     results: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     skipped = 0
+    eligible = 0
+    consecutive_rate_limits = 0
+    checkpoint_every = 3
+    since_checkpoint = 0
+
+    def _checkpoint() -> None:
+        nonlocal since_checkpoint
+        if not easylearn_quiz_id:
+            return
+        try:
+            update_quiz_draft(
+                course_id=course_id,
+                quiz_id=str(easylearn_quiz_id),
+                patch={
+                    "agentic_feedback_processed": processed,
+                    "agentic_feedback_last_run": time.time(),
+                },
+            )
+            since_checkpoint = 0
+        except Exception:
+            logger.exception(
+                "Failed to checkpoint agentic feedback progress for quiz %s",
+                easylearn_quiz_id,
+            )
 
     for sub in submissions:
         state = sub.get("workflow_state")
         if state not in ("complete", "graded", "pending_review", None):
             continue
 
+        eligible += 1
         sub_id = str(sub["id"])
         if not force and sub_id in processed:
             skipped += 1
             continue
+
+        if max_submissions is not None and len(results) >= max_submissions:
+            break
 
         if not sub.get("submission_data"):
             errors.append(
@@ -278,18 +323,46 @@ def process_agentic_feedback(
                     "questions": comment_count,
                 }
             )
+            consecutive_rate_limits = 0
+            since_checkpoint += 1
+            if since_checkpoint >= checkpoint_every:
+                _checkpoint()
         except Exception as exc:
+            msg = str(exc)
             logger.warning(
                 "Agentic feedback failed for submission %s: %s", sub.get("id"), exc
             )
-            errors.append({"submission_id": sub.get("id"), "error": str(exc)})
+            errors.append({"submission_id": sub.get("id"), "error": msg})
+            # Mild backoff when providers throttle (message often includes 429)
+            if "429" in msg or "rate limit" in msg.lower() or "Rate limit" in msg:
+                consecutive_rate_limits += 1
+                sleep_s = min(30.0, 2.0 * consecutive_rate_limits)
+                logger.info(
+                    "Rate limit signal; sleeping %.1fs before next submission", sleep_s
+                )
+                time.sleep(sleep_s)
+            else:
+                consecutive_rate_limits = 0
+
+    last_run = time.time()
+    if results or since_checkpoint:
+        _checkpoint()
+
+    remaining = max(0, eligible - len(processed))
+    coverage_pct = (
+        round(100.0 * len(processed) / eligible, 1) if eligible else 0.0
+    )
 
     return {
         "canvas_quiz_id": int(canvas_quiz_id),
         "processed": len(results),
         "skipped": skipped,
+        "eligible": eligible,
+        "remaining": remaining,
+        "coverage_pct": coverage_pct,
+        "total_processed_ever": len(processed),
         "submissions": results,
         "errors": errors,
         "agentic_feedback_processed": processed,
-        "agentic_feedback_last_run": time.time(),
+        "agentic_feedback_last_run": last_run,
     }

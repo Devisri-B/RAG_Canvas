@@ -2,6 +2,8 @@
 
 let currentStep = 1;
 let stepInterval = null;
+let autoModelId = null;
+let autoModelLabel = null;
 
 /* ---------- Models ---------- */
 
@@ -10,15 +12,30 @@ function modelStorageKey() {
 }
 
 async function fetchModels() {
+    const select = document.getElementById("model-select");
+    select.disabled = true;
+    const wrapper = select.closest(".select-wrapper");
+    if (wrapper) wrapper.classList.add("is-loading");
     try {
         const res = await fetch("/api/models");
         if (!res.ok) throw new Error("Failed to load models");
-        loadedModels = await res.json();
+        const payload = await res.json();
+        loadedModels = Array.isArray(payload) ? payload : (payload.models || []);
+        autoModelId = Array.isArray(payload) ? null : (payload.auto_model_id || null);
+        autoModelLabel = Array.isArray(payload) ? null : (payload.auto_model_label || null);
         populateModelSelect();
+        modelsReady = Boolean(autoModelId) || loadedModels.some(m => m.available);
+        select.disabled = false;
+        updateGenerateEnabled();
     } catch (err) {
         console.error("Error loading models:", err);
-        const select = document.getElementById("model-select");
+        modelsReady = false;
+        autoModelId = null;
+        autoModelLabel = null;
         select.innerHTML = `<option value="">Models unavailable</option>`;
+        updateGenerateEnabled();
+    } finally {
+        if (wrapper) wrapper.classList.remove("is-loading");
     }
 }
 
@@ -26,8 +43,12 @@ function populateModelSelect() {
     const select = document.getElementById("model-select");
     select.innerHTML = "";
 
+    const autoOpt = document.createElement("option");
+    autoOpt.value = "";
+    autoOpt.textContent = autoModelLabel ? `Auto (${autoModelLabel})` : "Auto";
+    select.appendChild(autoOpt);
+
     if (!loadedModels.length) {
-        select.innerHTML = `<option value="">No models configured</option>`;
         return;
     }
 
@@ -44,37 +65,77 @@ function populateModelSelect() {
         select.appendChild(opt);
     });
 
-    const preferred = loadedModels.find(m => m.id === storedId && m.available)
-        || loadedModels.find(m => m.default && m.available)
-        || loadedModels.find(m => m.available)
-        || loadedModels[0];
-    if (preferred) {
-        select.value = preferred.id;
+    if (storedId && loadedModels.some(m => m.id === storedId && m.available)) {
+        select.value = storedId;
+    } else {
+        select.value = "";
+        sessionStorage.removeItem(modelStorageKey());
     }
     onModelChange();
 }
 
 function onModelChange() {
     const select = document.getElementById("model-select");
-    const model = loadedModels.find(m => m.id === select.value);
-    if (select.value && model?.available) {
-        sessionStorage.setItem(modelStorageKey(), select.value);
+    if (!select) return;
+    if (select.value) {
+        const model = loadedModels.find(m => m.id === select.value);
+        if (model?.available) {
+            sessionStorage.setItem(modelStorageKey(), select.value);
+        }
+    } else {
+        sessionStorage.removeItem(modelStorageKey());
     }
 }
 
-function selectedModelLabel() {
+function selectedModelId() {
     const select = document.getElementById("model-select");
-    const model = loadedModels.find(m => m.id === select.value);
+    return (select && select.value) ? select.value : null;
+}
+
+function selectedModelLabel() {
+    const id = selectedModelId();
+    if (!id) return autoModelLabel || "Auto";
+    const model = loadedModels.find(m => m.id === id);
     return model ? model.label : "AI model";
+}
+
+function showPreviewModelLabel(label) {
+    const el = document.getElementById("preview-model-label");
+    if (!el) return;
+    if (label) {
+        el.hidden = false;
+        el.textContent = `Generated with ${label}`;
+    } else {
+        el.hidden = true;
+        el.textContent = "";
+    }
 }
 
 /* ---------- Modules & materials ---------- */
 
-async function fetchModules() {
+async function fetchModules({ refresh = false } = {}) {
     const moduleSelect = document.getElementById("module-select");
+    const refreshBtn = document.getElementById("btn-refresh-modules");
+    const materialList = document.getElementById("material-list-container");
+
+    modulesReady = false;
+    moduleSelect.disabled = true;
     moduleSelect.innerHTML = `<option value="">Loading course modules...</option>`;
+    if (materialList) {
+        materialList.classList.add("is-loading");
+        if (refresh) {
+            materialList.innerHTML = `<p class="material-empty">Refreshing from Canvas…</p>`;
+        }
+    }
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.classList.add("is-spinning");
+    }
+    updateGenerateEnabled();
+
     try {
-        const res = await fetch("/api/modules");
+        const url = refresh ? "/api/modules?refresh=1" : "/api/modules";
+        const res = await fetch(url);
         if (res.status === 401) { window.location.reload(); return; }
         if (!res.ok) throw new Error("Failed to fetch course modules");
         loadedModules = await res.json();
@@ -83,6 +144,9 @@ async function fetchModules() {
             moduleSelect.innerHTML = `<option value="">No modules with PDF/PPTX materials</option>`;
             document.getElementById("material-list-container").innerHTML =
                 `<p class="material-empty">No modules contain supported materials (PDF or PPTX).</p>`;
+            modulesReady = true;
+            moduleSelect.disabled = false;
+            updateGenerateEnabled();
             return;
         }
         loadedModules.forEach(mod => {
@@ -92,10 +156,37 @@ async function fetchModules() {
             moduleSelect.appendChild(opt);
         });
         onModuleChange();
+        modulesReady = true;
+        moduleSelect.disabled = false;
+        updateGenerateEnabled();
+        if (typeof setSourceStatus === "function" && refresh) {
+            setSourceStatus("Modules refreshed from Canvas", "ok");
+            window.setTimeout(() => setSourceStatus(""), 1500);
+        }
     } catch (err) {
         console.error("Error fetching modules:", err);
+        modulesReady = false;
         moduleSelect.innerHTML = `<option value="">Error loading course modules</option>`;
+        if (refresh) {
+            alert(err.message || "Could not refresh modules from Canvas.");
+            if (typeof setSourceStatus === "function") {
+                setSourceStatus("Could not refresh modules", "error");
+            }
+        }
+        updateGenerateEnabled();
+    } finally {
+        if (materialList) materialList.classList.remove("is-loading");
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.classList.remove("is-spinning");
+        }
+        const wrapper = moduleSelect.closest(".select-wrapper");
+        if (wrapper && modulesReady) wrapper.classList.remove("is-loading");
     }
+}
+
+function refreshModules() {
+    return fetchModules({ refresh: true });
 }
 
 function onModuleChange() {
@@ -157,21 +248,19 @@ function updateLayoutSummary() {
     if (el) el.innerHTML = `${totalQs} ${qLabel} &bull; ${totalPoints} ${pLabel} total`;
 }
 
-function syncFeedbackToggles() {
+/** Product always uses AI feedback + Auto model; no professor toggles. */
+function syncFeedbackToggles(opts = {}) {
+    const shouldRender = opts.render !== false;
     const staticEl = document.getElementById("include-answer-feedback");
     const agenticEl = document.getElementById("include-agentic-feedback");
-    if (!staticEl || !agenticEl) return;
-    if (agenticEl.checked) {
-        staticEl.checked = false;
-        staticEl.disabled = true;
-    } else {
-        staticEl.disabled = false;
-    }
-    if (staticEl.checked) {
-        agenticEl.checked = false;
-        agenticEl.disabled = true;
-    } else {
-        agenticEl.disabled = false;
+    if (staticEl) staticEl.checked = false;
+    if (agenticEl) agenticEl.checked = true;
+    if (shouldRender && currentActiveQuiz) {
+        currentActiveQuiz.includes_agentic_feedback = true;
+        currentActiveQuiz.includes_answer_feedback = false;
+        if (typeof renderQuizUI === "function") {
+            renderQuizUI();
+        }
     }
 }
 
@@ -179,8 +268,14 @@ function syncFeedbackToggles() {
 
 function animateSteps() {
     currentStep = 1;
+    const overrideId = selectedModelId();
+    const titleEl = document.getElementById("gen-loader-title");
+    if (overrideId) {
+        titleEl.innerText = `Generating Quiz via ${selectedModelLabel()}...`;
+    } else {
+        titleEl.innerText = "Generating Quiz...";
+    }
     const modelLabel = selectedModelLabel();
-    document.getElementById("gen-loader-title").innerText = `Generating Quiz via ${modelLabel}...`;
     const updateStepUI = () => {
         for (let i = 1; i <= 4; i++) {
             const el = document.getElementById(`step-${i}`);
@@ -194,7 +289,9 @@ function animateSteps() {
                 el.className = "step-item active";
                 if (i === 1) el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Downloading and extracting materials...`;
                 if (i === 2) el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Analyzing conceptual topics...`;
-                if (i === 3) el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Generating structured JSON via ${escapeHtml(modelLabel)}...`;
+                if (i === 3) el.innerHTML = overrideId
+                    ? `<i class="fa-solid fa-spinner fa-spin"></i> Generating structured JSON via ${escapeHtml(modelLabel)}...`
+                    : `<i class="fa-solid fa-spinner fa-spin"></i> Generating structured JSON...`;
                 if (i === 4) el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Formatting preview controls...`;
             } else {
                 el.className = "step-item";
@@ -230,6 +327,11 @@ function completeAllSteps() {
 /* ---------- Generate ---------- */
 
 async function triggerQuizGeneration() {
+    if (!modulesReady || !modelsReady) {
+        alert("Still loading course data. Please wait a moment.");
+        return;
+    }
+
     const moduleSelect = document.getElementById("module-select");
     const moduleId = moduleSelect.value;
     if (!moduleId) {
@@ -265,12 +367,15 @@ async function triggerQuizGeneration() {
         return;
     }
 
-    const modelSelect = document.getElementById("model-select");
-    const modelId = modelSelect.value;
-    const selectedModel = loadedModels.find(m => m.id === modelId);
-    if (!modelId || !selectedModel || !selectedModel.available) {
-        alert("Please select an available AI model.");
+    if (!autoModelId && !loadedModels.some(m => m.available)) {
+        alert("No AI provider is configured on the server.");
         return;
+    }
+
+    const generateBtn = document.getElementById("btn-generate");
+    if (generateBtn) {
+        generateBtn.dataset.generating = "1";
+        generateBtn.disabled = true;
     }
 
     document.getElementById("preview-placeholder").style.display = "none";
@@ -281,33 +386,31 @@ async function triggerQuizGeneration() {
     animateSteps();
 
     try {
-        const includeFeedback = document.getElementById("include-feedback").checked;
-        const includeAnswerFeedback = document.getElementById("include-answer-feedback").checked;
-        const includeAgenticFeedback = document.getElementById("include-agentic-feedback").checked;
+        // Always AI feedback; model always Auto (no model_id override).
+        const body = {
+            module_id: moduleId,
+            quiz_title: quizTitle,
+            file_ids: fileIds,
+            question_types: {
+                multiple_choice: numMc,
+                true_false: numTf,
+                matching: numMatching
+            },
+            points_per_type: {
+                multiple_choice: pointsMc,
+                true_false: pointsTf,
+                matching: pointsMatching
+            },
+            mc_options: mcOptions,
+            matching_pairs: matchingPairs,
+            include_answer_feedback: false,
+            include_agentic_feedback: true,
+        };
+
         const res = await fetch("/api/generate-quiz", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                module_id: moduleId,
-                quiz_title: quizTitle,
-                file_ids: fileIds,
-                question_types: {
-                    multiple_choice: numMc,
-                    true_false: numTf,
-                    matching: numMatching
-                },
-                points_per_type: {
-                    multiple_choice: pointsMc,
-                    true_false: pointsTf,
-                    matching: pointsMatching
-                },
-                mc_options: mcOptions,
-                matching_pairs: matchingPairs,
-                include_feedback: includeFeedback,
-                include_answer_feedback: includeAnswerFeedback,
-                include_agentic_feedback: includeAgenticFeedback,
-                model_id: modelId
-            })
+            body: JSON.stringify(body)
         });
 
         if (!res.ok) {
@@ -317,9 +420,11 @@ async function triggerQuizGeneration() {
         }
 
         currentActiveQuiz = await res.json();
-        currentActiveQuiz.includes_feedback = includeFeedback;
-        currentActiveQuiz.includes_answer_feedback = includeAnswerFeedback;
-        currentActiveQuiz.includes_agentic_feedback = includeAgenticFeedback;
+        currentActiveQuiz.includes_answer_feedback = false;
+        currentActiveQuiz.includes_agentic_feedback = true;
+        if (Array.isArray(currentActiveQuiz.questions)) {
+            currentActiveQuiz.questions.forEach(q => { q.feedback_enabled = true; });
+        }
 
         completeAllSteps();
 
@@ -334,6 +439,11 @@ async function triggerQuizGeneration() {
         alert(err.message || "Could not generate quiz. Please try again.");
         document.getElementById("gen-loader").style.display = "none";
         document.getElementById("preview-placeholder").style.display = "flex";
+    } finally {
+        if (generateBtn) {
+            generateBtn.dataset.generating = "0";
+            updateGenerateEnabled();
+        }
     }
 }
 
@@ -343,34 +453,127 @@ function regenerateQuestions() {
 
 /* ---------- Preview rendering ---------- */
 
+/** Match deploy order: content item, then optional confidence + explanation metas. */
+function canvasTakeLayout(questions, agenticOn) {
+    const items = [];
+    let canvasPos = 0;
+    let feedbackCount = 0;
+    (questions || []).forEach((q, qIndex) => {
+        canvasPos += 1;
+        const contentCanvasNumber = canvasPos;
+        const fbEnabled = agenticOn && q.feedback_enabled !== false;
+        items.push({
+            kind: "content",
+            qIndex,
+            canvasNumber: contentCanvasNumber,
+            feedbackEnabled: fbEnabled,
+        });
+        if (fbEnabled) {
+            canvasPos += 1;
+            items.push({
+                kind: "confidence",
+                qIndex,
+                canvasNumber: canvasPos,
+                parentCanvasNumber: contentCanvasNumber,
+            });
+            canvasPos += 1;
+            items.push({
+                kind: "explanation",
+                qIndex,
+                canvasNumber: canvasPos,
+                parentCanvasNumber: contentCanvasNumber,
+            });
+            feedbackCount += 2;
+        }
+    });
+    return {
+        items,
+        contentCount: (questions || []).length,
+        feedbackCount,
+        canvasItemCount: canvasPos,
+    };
+}
+
+function appendFeedbackFollowupCard(container, item, parentQuestion) {
+    const parentLabel = `Question ${item.parentCanvasNumber}`;
+    const isConfidence = item.kind === "confidence";
+    const card = document.createElement("div");
+    card.className = "question-card feedback-followup-card";
+    card.innerHTML = `
+        <div class="question-meta">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="canvas-q-label">Canvas Q${item.canvasNumber}</span>
+                <span class="type-badge badge-feedback">${isConfidence ? "Confidence" : "Explanation"}</span>
+            </div>
+            <span style="color: var(--text-muted);">0 pts · not graded</span>
+        </div>
+        <div class="feedback-followup-banner">Question ${item.parentCanvasNumber} Feedback (Not Graded)</div>
+        <div class="question-title feedback-followup-text">
+            ${isConfidence
+                ? `How confident were you in your answer to <strong>${parentLabel}</strong>?`
+                : `Briefly explain <strong>why</strong> you chose your answer for <strong>${parentLabel}</strong>.`}
+        </div>
+    `;
+    container.appendChild(card);
+}
+
+function updatePreviewMetaTag(agenticOn) {
+    const totalPoints = currentActiveQuiz.questions.reduce(
+        (sum, q) => sum + parseInt(q.points_possible || 1, 10),
+        0,
+    );
+    const layout = canvasTakeLayout(currentActiveQuiz.questions, agenticOn);
+    const metaEl = document.getElementById("preview-meta-tag");
+    if (agenticOn && layout.feedbackCount > 0) {
+        metaEl.innerText =
+            `${layout.canvasItemCount} Canvas items ` +
+            `(${layout.contentCount} content + ${layout.feedbackCount} feedback) • ${totalPoints} Points`;
+    } else {
+        metaEl.innerText = `${layout.contentCount} Questions • ${totalPoints} Points total`;
+    }
+    const deployHint = document.getElementById("deploy-canvas-count");
+    if (deployHint) {
+        if (agenticOn && layout.feedbackCount > 0) {
+            deployHint.hidden = false;
+            deployHint.textContent =
+                `${layout.canvasItemCount} Canvas items ` +
+                `(${layout.contentCount} content + ${layout.feedbackCount} feedback)`;
+        } else {
+            deployHint.hidden = true;
+            deployHint.textContent = "";
+        }
+    }
+}
+
 function renderQuizUI() {
     if (!currentActiveQuiz) return;
 
-    const feedbackEl = document.getElementById("include-feedback");
-    const answerFbEl = document.getElementById("include-answer-feedback");
-    const agenticEl = document.getElementById("include-agentic-feedback");
-    if (feedbackEl && currentActiveQuiz.includes_feedback != null) {
-        feedbackEl.checked = Boolean(currentActiveQuiz.includes_feedback);
-    }
-    if (answerFbEl && currentActiveQuiz.includes_answer_feedback != null) {
-        answerFbEl.checked = Boolean(currentActiveQuiz.includes_answer_feedback);
-    }
-    if (agenticEl && currentActiveQuiz.includes_agentic_feedback != null) {
-        agenticEl.checked = Boolean(currentActiveQuiz.includes_agentic_feedback);
-    }
-    syncFeedbackToggles();
-
-    const agenticOn = Boolean(currentActiveQuiz.includes_agentic_feedback);
+    syncFeedbackToggles({ render: false });
+    // Always AI feedback for this product.
+    const agenticOn = true;
+    currentActiveQuiz.includes_agentic_feedback = true;
 
     document.getElementById("preview-quiz-title").innerText = currentActiveQuiz.quiz_title;
-
-    const totalPoints = currentActiveQuiz.questions.reduce((sum, q) => sum + parseInt(q.points_possible || 1), 0);
-    document.getElementById("preview-meta-tag").innerText = `${currentActiveQuiz.questions.length} Questions • ${totalPoints} Points total`;
+    updatePreviewMetaTag(agenticOn);
+    showPreviewModelLabel(currentActiveQuiz.model_label || null);
 
     const container = document.getElementById("questions-list-container");
     container.innerHTML = "";
 
-    currentActiveQuiz.questions.forEach((q, qIndex) => {
+    const layout = canvasTakeLayout(currentActiveQuiz.questions, agenticOn);
+
+    layout.items.forEach((item) => {
+        if (item.kind !== "content") {
+            appendFeedbackFollowupCard(
+                container,
+                item,
+                currentActiveQuiz.questions[item.qIndex],
+            );
+            return;
+        }
+
+        const qIndex = item.qIndex;
+        const q = currentActiveQuiz.questions[qIndex];
         const card = document.createElement("div");
         card.className = "question-card";
         card.id = `q-card-${qIndex}`;
@@ -413,58 +616,15 @@ function renderQuizUI() {
         const points = q.points_possible || 1;
         const ptLabel = points === 1 ? "pt" : "pts";
 
-        let explanationsHTML = "";
-        if (q.correct_comments || q.incorrect_comments) {
-            explanationsHTML = `<div class="answer-explanations">`;
-            if (q.correct_comments) {
-                explanationsHTML += `
-                    <div class="explanation-row correct">
-                        <i class="fa-solid fa-circle-check"></i>
-                        <span>${escapeHtml(q.correct_comments)}</span>
-                    </div>`;
-            }
-            if (q.incorrect_comments) {
-                explanationsHTML += `
-                    <div class="explanation-row incorrect">
-                        <i class="fa-solid fa-circle-xmark"></i>
-                        <span>${escapeHtml(q.incorrect_comments)}</span>
-                    </div>`;
-            }
-            explanationsHTML += `</div>`;
-        }
-
-        // Per-question feedback toggle (only meaningful when quiz-level feedback is on)
-        const fbEnabled = q.feedback_enabled !== false;
-        const feedbackToggleHTML = agenticOn ? `
-            <label class="q-feedback-toggle ${fbEnabled ? 'on' : ''}" title="Collect confidence + explanation for this question and generate AI feedback">
-                <input type="checkbox" ${fbEnabled ? 'checked' : ''} onchange="toggleQuestionFeedback(${qIndex}, this.checked)">
-                <i class="fa-solid fa-comment-dots"></i> AI feedback
-            </label>` : "";
-
-        const explanationEditor = q.question_type === 'matching_question'
-            ? `
-                <div class="form-group">
-                    <label>Feedback (shown after submission)</label>
-                    <textarea id="edit-correct-comments-${qIndex}" rows="2" placeholder="Explanation shown to students">${escapeHtml(q.correct_comments || '')}</textarea>
-                </div>`
-            : `
-                <div class="form-group">
-                    <label>Correct answer feedback</label>
-                    <textarea id="edit-correct-comments-${qIndex}" rows="2" placeholder="Shown when answered correctly">${escapeHtml(q.correct_comments || '')}</textarea>
-                </div>
-                <div class="form-group">
-                    <label>Incorrect answer feedback</label>
-                    <textarea id="edit-incorrect-comments-${qIndex}" rows="2" placeholder="Shown when answered incorrectly">${escapeHtml(q.incorrect_comments || '')}</textarea>
-                </div>`;
+        const numberLabel = `<span class="canvas-q-label">Q${item.canvasNumber}</span>`;
 
         card.innerHTML = `
             <div class="question-meta">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="color: var(--text-muted);">Question ${qIndex + 1}</span>
+                    ${numberLabel}
                     <span class="type-badge ${typeBadgeClass}">${typeLabel}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    ${feedbackToggleHTML}
                     <span style="color: var(--text-muted);">${points} ${ptLabel}</span>
                 </div>
             </div>
@@ -474,29 +634,25 @@ function renderQuizUI() {
                 ${answersHTML}
             </div>
 
-            ${explanationsHTML}
-
             <div class="q-actions">
-                <button class="action-icon-btn" onclick="toggleEditForm(${qIndex})">
-                    <i class="fa-solid fa-pen-to-square"></i> Edit
-                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEditForm(${qIndex})">Edit</button>
             </div>
 
             <div class="editor-form" id="editor-form-${qIndex}" style="display: none;">
                 <div class="form-group">
-                    <label>Question Text</label>
+                    <label>Question text</label>
                     <textarea id="edit-qtext-${qIndex}" rows="2">${escapeHtml(q.question_text)}</textarea>
                 </div>
                 <div class="form-group">
-                    <label>Answers & Pair Matching</label>
+                    <label>Answers</label>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem;" id="edit-answers-container-${qIndex}">
                         ${q.question_type === 'matching_question' ?
                             q.answers.map((ans, aIndex) => `
                                 <div style="display: flex; gap: 0.5rem; align-items: center;">
                                     <span style="font-size: 0.85rem; color: var(--text-muted); width: 20px;">${aIndex + 1}:</span>
-                                    <input type="text" style="padding: 0.5rem; flex: 1;" id="edit-anstext-${qIndex}-${aIndex}" value="${escapeAttr(ans.answer_text)}" placeholder="Left Prompt">
-                                    <i class="fa-solid fa-arrow-right-long" style="color: var(--accent-blue);"></i>
-                                    <input type="text" style="padding: 0.5rem; flex: 1;" id="edit-ansmatch-${qIndex}-${aIndex}" value="${escapeAttr(ans.answer_match_right)}" placeholder="Right Match">
+                                    <input type="text" style="padding: 0.5rem; flex: 1;" id="edit-anstext-${qIndex}-${aIndex}" value="${escapeAttr(ans.answer_text)}" placeholder="Left">
+                                    <span style="color: var(--text-muted);">→</span>
+                                    <input type="text" style="padding: 0.5rem; flex: 1;" id="edit-ansmatch-${qIndex}-${aIndex}" value="${escapeAttr(ans.answer_match_right)}" placeholder="Right">
                                 </div>
                             `).join('')
                         :
@@ -509,10 +665,9 @@ function renderQuizUI() {
                         }
                     </div>
                 </div>
-                ${explanationEditor}
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
-                    <button class="btn btn-secondary" style="padding: 0.5rem 1rem; width: auto; font-size: 0.85rem;" onclick="toggleEditForm(${qIndex})">Cancel</button>
-                    <button class="btn btn-primary" style="padding: 0.5rem 1rem; width: auto; font-size: 0.85rem;" onclick="saveQuestionEdit(${qIndex})">Save Changes</button>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEditForm(${qIndex})">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="saveQuestionEdit(${qIndex})">Save</button>
                 </div>
             </div>
         `;
@@ -526,8 +681,7 @@ function renderQuizUI() {
 function toggleQuestionFeedback(qIndex, enabled) {
     if (!currentActiveQuiz || !currentActiveQuiz.questions[qIndex]) return;
     currentActiveQuiz.questions[qIndex].feedback_enabled = enabled;
-    const toggle = document.querySelector(`#q-card-${qIndex} .q-feedback-toggle`);
-    if (toggle) toggle.classList.toggle("on", enabled);
+    renderQuizUI();
 }
 
 function toggleEditForm(qIndex) {
@@ -541,10 +695,9 @@ function saveQuestionEdit(qIndex) {
     const q = currentActiveQuiz.questions[qIndex];
     q.question_text = qText;
 
-    const correctCommentsEl = document.getElementById(`edit-correct-comments-${qIndex}`);
-    if (correctCommentsEl) q.correct_comments = correctCommentsEl.value.trim();
-    const incorrectCommentsEl = document.getElementById(`edit-incorrect-comments-${qIndex}`);
-    if (incorrectCommentsEl) q.incorrect_comments = incorrectCommentsEl.value.trim();
+    // Static correct/incorrect comments are no longer edited in the UI.
+    q.correct_comments = "";
+    q.incorrect_comments = "";
 
     if (q.question_type === 'matching_question') {
         q.answers.forEach((ans, aIndex) => {
@@ -588,21 +741,24 @@ async function deployQuiz() {
     }
 
     const deployBtn = document.querySelector("button[onclick='deployQuiz()']");
-    const originalHTML = deployBtn.innerHTML;
-    deployBtn.disabled = true;
-    deployBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Deploying...`;
+    const originalHTML = deployBtn ? deployBtn.innerHTML : "Deploy to Canvas";
+    if (deployBtn) {
+        deployBtn.disabled = true;
+        deployBtn.textContent = "Deploying…";
+    }
 
     try {
-        const includeFeedback = document.getElementById("include-feedback").checked;
-        const includeAgenticFeedback = document.getElementById("include-agentic-feedback").checked;
+        if (currentActiveQuiz.questions) {
+            currentActiveQuiz.questions.forEach(q => { q.feedback_enabled = true; });
+        }
+        currentActiveQuiz.includes_agentic_feedback = true;
         const res = await fetch("/api/deploy-quiz", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 module_id: moduleId,
                 quiz: currentActiveQuiz,
-                include_feedback: includeFeedback,
-                include_agentic_feedback: includeAgenticFeedback
+                include_agentic_feedback: true
             })
         });
 
@@ -612,26 +768,37 @@ async function deployQuiz() {
         }
 
         const data = await res.json();
+        const draftId = currentActiveQuiz && currentActiveQuiz.id
+            ? String(currentActiveQuiz.id)
+            : "";
 
         const banner = document.getElementById("success-banner");
         banner.style.display = "flex";
+        let actions = `
+            <a href="${escapeAttr(data.quiz_url)}" target="_blank" class="btn btn-secondary btn-sm btn-link">View in Canvas</a>`;
+        if (draftId) {
+            actions = `
+            <a href="#" class="action-link" data-quiz-id="${escapeAttr(draftId)}"
+                data-quiz-title="${escapeAttr((currentActiveQuiz && currentActiveQuiz.quiz_title) || "Quiz")}"
+                onclick="openQuizModal(this.dataset.quizId, this.dataset.quizTitle); return false;">Results</a>
+            ` + actions;
+        }
         banner.innerHTML = `
-            <i class="fa-solid fa-circle-check"></i>
             <div>
-                <strong>Deploy successful!</strong> Quiz has been uploaded.
-                <a href="${escapeAttr(data.quiz_url)}" target="_blank" class="link-canvas">
-                    View in Canvas <i class="fa-solid fa-arrow-up-right-from-square"></i>
-                </a>
+                <strong>Sent to Canvas.</strong> Publish when ready. After students submit, open Quizzes and click Generate feedback.
+                <div class="banner-actions">${actions}</div>
             </div>
         `;
 
-        document.getElementById("success-banner").scrollIntoView({ behavior: 'smooth' });
+        document.getElementById("success-banner").scrollIntoView({ behavior: "smooth" });
 
     } catch (err) {
         console.error("Error deploying quiz:", err);
-        alert(`Quiz Deployment Failed: ${err.message}`);
+        alert(`Could not deploy quiz: ${err.message}`);
     } finally {
-        deployBtn.disabled = false;
-        deployBtn.innerHTML = originalHTML;
+        if (deployBtn) {
+            deployBtn.disabled = false;
+            deployBtn.innerHTML = originalHTML;
+        }
     }
 }

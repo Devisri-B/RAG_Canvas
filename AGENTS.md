@@ -4,28 +4,28 @@ Guide for humans and AI agents working in this repository.
 
 ## What this is
 
-**EasyLearn** is an LTI 1.3 web app that generates structured quizzes from Canvas course materials (PDF/PPTX) using Google Gemini, then deploys them back to Canvas. It is not a generic web app — most behavior is tied to Canvas auth, course context, and the LTI launch flow.
+**EasyLearn** is an LTI 1.3 web app that generates structured quizzes from Canvas course materials (PDF/PPTX) using Google Gemini or OpenRouter, then deploys them back to Canvas. Most behavior is tied to Canvas auth, course context, and the LTI launch flow.
 
 ## Repo map
 
 | Path | Purpose |
 |------|---------|
-| `main.py` | FastAPI entrypoint, middleware, router registration |
+| `main.py` | FastAPI entrypoint, middleware, health endpoints (`/healthz`, `/readyz`) |
 | `app/routers/` | Route modules (`api`, `oauth`, `lti_routes`, `pages`) |
 | `app/dependencies.py` | FastAPI `Depends()` helpers for course ID and Canvas client |
-| `app/` | Shared application logic (Canvas, LTI adapter, generation, storage) |
+| `app/` | Application logic (Canvas API, LTI adapter, quiz generation, storage) |
 | `app/config.py` | All environment variables — single source of truth |
 | `app/lti.py` | FastAPI adapter for `pylti1p3` |
-| `app/schemas.py` | Pydantic models (`WeeklyQuiz`, etc.) |
+| `app/schemas.py` | Pydantic models (`WeeklyQuiz`, `GeneratedQuestion`, etc.) |
 | `config/lti_config.json` | LTI tool registration (copy from `lti_config.example.json`) |
-| `docker-compose.yml` | Production stack (+ optional Cloudflare tunnel profile) |
+| `docker-compose.yml` | Production Docker Compose deployment |
 | `Dockerfile` | Container image |
 | `keys/` | RSA keypair for LTI signing (gitignored) |
 | `cache/` | Downloaded files and quiz drafts (gitignored) |
-| `templates/` | Dashboard HTML |
-| `static/` | Favicon, logo |
-| `utils/` | CLI utilities (setup doctor, LTI config, course/user generation, quiz gen) |
-| `docs/` | Setup, LTI/OAuth, architecture, demo, testing, deployment, CLI guides |
+| `templates/` | Dashboard HTML templates |
+| `static/` | Static CSS/JS assets and logo |
+| `utils/` | System configuration tools (`configure_lti.py`, `configure_oauth.py`) |
+| `docs/` | DevOps Deployment Guide (`deployment.md`) |
 
 ## Dev workflow
 

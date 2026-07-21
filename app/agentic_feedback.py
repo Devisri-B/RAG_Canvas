@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.llm.catalog import get_default_model_id, resolve_model
+from app.llm.catalog import resolve_model
 from app.llm.registry import generate_text
 from app.schemas import GeneratedAnswer, GeneratedQuestion
 
@@ -21,19 +21,36 @@ CONFIDENCE_LABELS = [
     "Completely confident",
 ]
 
+_FEEDBACK_BANNER = (
+    '<p style="color:#b00020;font-weight:700;margin:0 0 0.5rem;">'
+    "Question {n} Feedback (Not Graded)</p>"
+)
+
 
 def build_agentic_meta_questions(
-    content_index: int,
-    content_name: str,
+    canvas_question_number: int,
+    *,
+    content_stem: str = "",
 ) -> list[GeneratedQuestion]:
-    """Ungraded confidence + explanation questions for one content question."""
-    q_num = content_index + 1
-    label = content_name or f"Question {q_num}"
+    """Ungraded confidence + explanation questions for one content Canvas item.
+
+    ``canvas_question_number`` is the Classic Quizzes position of the *parent*
+    content question (what students see as "Question N"), not the generative
+    draft index or ``question_name``.
+
+    ``content_stem`` is accepted for API compatibility but not shown to students.
+    """
+    del content_stem  # numbering is enough; do not restate the parent stem
+    n = int(canvas_question_number)
+    banner = _FEEDBACK_BANNER.format(n=n)
+    name_label = f"Question {n}"
+    parent_ref = f"<strong>{name_label}</strong>"
     return [
         GeneratedQuestion(
-            question_name=f"{AGENTIC_PREFIX} {label} — Confidence",
+            question_name=f"{AGENTIC_PREFIX} {name_label} — Confidence",
             question_text=(
-                f"<p>How confident were you in your answer to <strong>{label}</strong>?</p>"
+                f"{banner}"
+                f"<p>How confident were you in your answer to {parent_ref}?</p>"
             ),
             question_type="multiple_choice_question",
             points_possible=0,
@@ -45,10 +62,11 @@ def build_agentic_meta_questions(
             ],
         ),
         GeneratedQuestion(
-            question_name=f"{AGENTIC_PREFIX} {label} — Explanation",
+            question_name=f"{AGENTIC_PREFIX} {name_label} — Explanation",
             question_text=(
+                f"{banner}"
                 f"<p>Briefly explain <strong>why</strong> you chose your answer "
-                f"for <strong>{label}</strong>.</p>"
+                f"for {parent_ref}.</p>"
             ),
             question_type="essay_question",
             points_possible=0,
@@ -201,7 +219,7 @@ def generate_question_feedback(
     model_id: str | None = None,
 ) -> str:
     """Call the LLM to produce one personalized comment."""
-    entry = resolve_model(model_id or get_default_model_id())
+    entry = resolve_model(model_id)
     prompt = build_feedback_prompt(
         question_text=question_text,
         correct_answer=correct_answer,

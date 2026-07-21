@@ -140,7 +140,6 @@ def list_quizzes(course_id: str | int) -> list[dict[str, Any]]:
                     "canvas_quiz_id": data.get("canvas_quiz_id") or data.get("quiz_id"),
                     "module_id": data.get("module_id"),
                     "module_name": data.get("module_name"),
-                    "includes_feedback": data.get("includes_feedback", False),
                     "includes_agentic_feedback": data.get("includes_agentic_feedback", False),
                 }
             )
@@ -157,12 +156,13 @@ def save_course_modules(course_id: str | int, modules_data: list[dict[str, Any]]
         write_json_atomic(get_course_dir(course_id) / "modules.json", modules_data)
 
 
-def get_cached_modules(course_id: str | int, max_age_seconds: int = 300) -> list[dict[str, Any]] | None:
-    """Return cached modules if present and not stale."""
+def get_cached_modules(course_id: str | int) -> list[dict[str, Any]] | None:
+    """Return cached modules if present.
+
+    Cache lives until an explicit refresh (``GET /api/modules?refresh=1``).
+    """
     file_path = get_course_dir(course_id) / "modules.json"
     if not file_path.is_file():
-        return None
-    if time.time() - file_path.stat().st_mtime > max_age_seconds:
         return None
     try:
         with file_path.open(encoding="utf-8") as f:

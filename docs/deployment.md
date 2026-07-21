@@ -1,116 +1,140 @@
-# Deployment
+# EasyLearn — DevOps Deployment Guide
 
-EasyLearn runs as a Docker container. Canvas is deployed separately (self-hosted
-or cloud); this guide covers EasyLearn + optional Cloudflare Tunnel exposure.
+This guide covers deploying **EasyLearn** (an LTI 1.3 web application for Canvas LMS) via Docker Compose or bare-metal Python, along with registering the required Developer Keys in Canvas LMS.
 
 ---
 
-## Topology
+## 1. Architecture & Deployment Topology
 
 ```mermaid
 flowchart LR
-    Prof[Professor browser] -->|HTTPS| CF[Cloudflare edge]
-    CF -->|tunnel| Cld[cloudflared container]
-    Cld -->|localhost:8000| EL[EasyLearn container]
-    Cld -->|localhost:3000| Canvas[Canvas on host]
-    Prof -->|LTI launch| Canvas
+    Prof[Professor Browser] -->|LTI Launch| Canvas[Canvas LMS]
+    Canvas -->|OIDC / Launch| EL[EasyLearn App :8000]
+    EL -->|Canvas REST API via OAuth| Canvas
+    EL -->|Quiz Generation| LLM[Gemini / OpenRouter API]
 ```
 
-| Public hostname | Typical origin (tunnel ingress) |
-|-----------------|--------------------------------|
-| `canvas.example.com` | `http://localhost:3000` |
-| `easylearn.example.com` | `http://localhost:8000` |
-
-The tunnel service uses **host networking** so Zero Trust ingress rules pointing
-at `localhost` keep working without changes.
+EasyLearn operates as a standalone LTI 1.3 web app. Instructors launch EasyLearn from Canvas course navigation, authorize access via OAuth2, select course module materials (PDF/PPTX), generate quizzes via AI providers, and deploy them back to Canvas.
 
 ---
 
-## Docker Compose
+## 2. Server Requirements & Environment Setup
+
+### Environment Variables (`.env`)
+
+Copy `.env.example` to `.env` and configure your instance:
+
+```ini
+# Base URLs
+CANVAS_API_URL=https://canvas.example.com
+CANVAS_PUBLIC_URL=https://canvas.example.com
+EASYLEARN_PUBLIC_URL=https://easylearn.example.com
+
+# Canvas Admin Token (Used for setup helpers only)
+CANVAS_API_TOKEN=your_canvas_admin_token
+
+# Canvas OAuth Credentials (Per-Professor REST API Access)
+CANVAS_CLIENT_ID=your_canvas_api_key_client_id
+CANVAS_CLIENT_SECRET=your_canvas_api_key_client_secret
+CANVAS_OAUTH_REDIRECT_URI=https://easylearn.example.com/oauth/callback
+
+# AI Provider Credentials (At least one required)
+OPENROUTER_API_KEY=your_openrouter_api_key
+GEMINI_API_KEY=your_gemini_api_key
+
+# Session Security
+SESSION_SECRET_KEY=generate_with_python_secrets_token_hex_32
+```
+
+---
+
+## 3. Canvas Developer Key Configuration
+
+EasyLearn requires **two** Developer Keys in Canvas: an **LTI 1.3 Key** for tool launching and an **API Key** for per-professor OAuth REST API access.
+
+### 3a. Register LTI 1.3 Developer Key (Launch)
+
+1. Log into Canvas as a Site Admin.
+2. Navigate to **Admin** -> **Developer Keys** -> **+ Developer Key** -> **+ LTI Key**.
+3. Configure the key:
+   - **Key Name**: `EasyLearn`
+   - **Redirect URIs**: `https://easylearn.example.com/launch`
+   - **Target Link URI**: `https://easylearn.example.com/launch`
+   - **OpenID Connect Initiation Url**: `https://easylearn.example.com/login`
+   - **JWK Method**: **Public JWK URL** -> `https://easylearn.example.com/jwks`
+   - **Placements**: **Course Navigation**
+   - **Custom Fields**:
+     ```text
+     canvas_course_id=$Canvas.course.id
+     ```
+4. Save the key and toggle its state to **ON**.
+5. Copy the generated numeric **Client ID**.
+6. Install the App in Canvas (**Course Settings** or **Account Settings** -> **Apps** -> **Add App** -> **By Client ID**), then copy the **Deployment ID**.
+7. Update `config/lti_config.json` with the Client ID, Deployment ID, and Canvas URLs:
+
+```json
+{
+  "https://canvas.example.com": [
+    {
+      "default": true,
+      "client_id": "<LTI_CLIENT_ID>",
+      "auth_login_url": "https://canvas.example.com/api/lti/authorize_redirect",
+      "auth_token_url": "https://canvas.example.com/login/oauth2/token",
+      "key_set_url": "https://canvas.example.com/api/lti/security/jwks",
+      "private_key_file": "../keys/private.key",
+      "public_key_file": "../keys/public.key",
+      "deployment_ids": ["<DEPLOYMENT_ID>"]
+    }
+  ]
+}
+```
+
+### 3b. Register API / OAuth2 Developer Key (REST Access)
+
+1. In Canvas, navigate to **Admin** -> **Developer Keys** -> **+ Developer Key** -> **+ API Key**.
+2. Configure:
+   - **Key Name**: `EasyLearn API`
+   - **Redirect URIs**: `https://easylearn.example.com/oauth/callback`
+3. Save, toggle **ON**, and copy the **Client ID** and **Client Secret** into your `.env` file as `CANVAS_CLIENT_ID` and `CANVAS_CLIENT_SECRET`.
+
+---
+
+## 4. Running the Application
+
+### Docker Compose (Recommended)
 
 ```bash
-cp .env.example .env
-# Fill CANVAS_* URLs, SESSION_SECRET_KEY, GEMINI_API_KEY, OAuth credentials
-# Run: uv run utils/configure_oauth.py --write-env
+# Generate RSA keypair for LTI signing if not already present:
+uv run utils/configure_lti.py
 
+# Start application
 docker compose up -d --build
-docker compose logs -f easylearn
 ```
 
-### Cloudflare Tunnel profile
-
-1. Create a tunnel in Zero Trust → Networks → Tunnels → Install connector.
-2. Add `TUNNEL_TOKEN=<token>` to `.env`.
-3. Start:
+### Bare-Metal (with `uv`)
 
 ```bash
-docker compose --profile tunnel up -d --build
-# Or set COMPOSE_PROFILES=tunnel in .env for a single `docker compose up`
+uv sync
+uv run main.py
 ```
 
-Tunnel ingress origins must use **`http://`** (not `https://`) for local services.
+---
+
+## 5. Health & Operability Endpoints
+
+EasyLearn exposes standard health endpoints for container orchestrators and load balancers:
+
+| Endpoint | Status Code | Role | Description |
+|----------|-------------|------|-------------|
+| `GET /healthz` | `200` | Liveness | Checks if application process is running. |
+| `GET /readyz` | `200` or `503` | Readiness | Checks LTI RSA keys, `lti_config.json`, Canvas API URL, and AI provider key. |
 
 ---
 
-## Environment variables
+## 6. Directory Structure & Persistent Storage
 
-See [.env.example](../.env.example). Production minimum:
-
-| Variable | Required | Notes |
-|----------|----------|-------|
-| `CANVAS_API_URL` | yes | Canvas REST base URL |
-| `CANVAS_PUBLIC_URL` | yes | Browser-facing Canvas URL |
-| `EASYLEARN_PUBLIC_URL` | yes | This tool’s public URL |
-| `CANVAS_API_TOKEN` | yes | Admin token — **CLI only**, not used by the web app |
-| `CANVAS_CLIENT_ID` / `SECRET` | yes | OAuth API Developer Key |
-| `CANVAS_OAUTH_REDIRECT_URI` | yes | `{EASYLEARN_PUBLIC_URL}/oauth/callback` |
-| `GEMINI_API_KEY` | yes* | *Or `OPENROUTER_API_KEY` |
-| `SESSION_SECRET_KEY` | yes | Strong random hex |
-| `TUNNEL_TOKEN` | tunnel | Cloudflare connector token |
-
-Optional: `CANVAS_OAUTH_SCOPES` (only when OAuth key enforces scopes),
-`GEMINI_MODEL`, `OPENROUTER_*`, `EASYLEARN_PORT`.
-
----
-
-## Volumes and secrets
-
-| Host path | Container | Purpose |
-|-----------|-----------|---------|
-| `./keys/` | `/app/keys` (ro) | LTI RSA keypair |
-| `./config/lti_config.json` | `/app/config/lti_config.json` (ro) | LTI registration |
-| `./cache/` | `/app/cache` | Quiz drafts, downloads |
-
-Never bake secrets into the image. `.env` is loaded via `env_file`.
-
----
-
-## HTTPS cookies
-
-When `CANVAS_API_URL` is `https://`, [app/config.py](../app/config.py) sets
-`SESSION_SAME_SITE=none` and secure cookies — required for Canvas cross-site POST
-to `/launch`.
-
----
-
-## Smoke tests
-
-```bash
-uv run utils/check_setup.py
-curl -sI https://easylearn.example.com/jwks
-curl -s https://easylearn.example.com/api/session
-```
-
-Launch from Canvas as a course teacher; complete OAuth; generate a quiz.
-
----
-
-## External Canvas configuration
-
-If Canvas runs in a separate repo (e.g. `canvas-lms` docker compose):
-
-- Set Canvas `domain.yml` to your public hostname.
-- Add the hostname to `ADDITIONAL_ALLOWED_HOSTS` in Canvas’s compose override.
-- Run `uv run utils/configure_lti.py` after URL changes.
-
-See [docs/canvas-setup.md](./canvas-setup.md).
+| Path | Container Path | Purpose |
+|------|----------------|---------|
+| `./keys/` | `/app/keys` | RSA keypair (`private.key`, `public.key`) for LTI signing |
+| `./config/lti_config.json` | `/app/config/lti_config.json` | LTI tool registration config |
+| `./cache/` | `/app/cache` | Downloaded module files and saved quiz drafts |

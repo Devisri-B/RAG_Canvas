@@ -6,9 +6,10 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 
-from app.config import PROJECT_ROOT
+from app.config import CACHE_DIR
 
-LOG_FILE = PROJECT_ROOT / "app.log"
+LOG_DIR = CACHE_DIR / "logs"
+LOG_FILE = LOG_DIR / "app.log"
 LOGGER_NAME = "easylearn"
 
 _THIRD_PARTY_LOGGERS = (
@@ -26,6 +27,7 @@ def configure_logging() -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.INFO)

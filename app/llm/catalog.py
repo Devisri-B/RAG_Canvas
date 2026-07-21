@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app import config
 
@@ -23,6 +22,7 @@ class ModelEntry(BaseModel):
     provider: ProviderName
     model: str
     default: bool = False
+    expects_free: bool = False
     structured_output: StructuredOutputMode = "native"
 
 
@@ -53,10 +53,35 @@ def get_default_model_id() -> str:
     return entries[0].id
 
 
+def list_available_models() -> list[ModelEntry]:
+    """Catalog entries whose provider API key is configured."""
+    return [e for e in load_catalog() if _provider_configured(e.provider)]
+
+
+def resolve_auto_model() -> ModelEntry:
+    """Pick the default catalog model if available, else the first with a configured key."""
+    available = list_available_models()
+    if not available:
+        raise ValueError(
+            "No AI provider is configured. Set OPENROUTER_API_KEY and/or GEMINI_API_KEY in .env."
+        )
+    for entry in available:
+        if entry.default:
+            return entry
+    # Prefer catalog order among available (default may be missing a key).
+    by_id = {e.id: e for e in available}
+    for entry in load_catalog():
+        if entry.id in by_id:
+            return by_id[entry.id]
+    return available[0]
+
+
 def resolve_model(model_id: str | None) -> ModelEntry:
-    entries = load_catalog()
-    chosen = model_id or get_default_model_id()
-    for entry in entries:
+    """Resolve an explicit model id, or auto-select when ``model_id`` is empty."""
+    if not (model_id or "").strip():
+        return resolve_auto_model()
+    chosen = model_id.strip()
+    for entry in load_catalog():
         if entry.id == chosen:
             if not _provider_configured(entry.provider):
                 raise ValueError(
@@ -67,19 +92,32 @@ def resolve_model(model_id: str | None) -> ModelEntry:
     raise ValueError(f"Unknown model_id: {chosen!r}")
 
 
-def list_models_for_api() -> list[dict[str, Any]]:
-    """Catalog entries for the dashboard, including availability flags."""
-    results: list[dict[str, Any]] = []
+def list_models_for_api() -> dict[str, Any]:
+    """Catalog payload for the dashboard, including auto-selection helpers."""
+    models: list[dict[str, Any]] = []
     for entry in load_catalog():
         available = _provider_configured(entry.provider)
-        results.append(
+        models.append(
             {
                 "id": entry.id,
                 "label": entry.label,
                 "provider": entry.provider,
                 "default": entry.default,
+                "expects_free": entry.expects_free,
                 "structured_output": entry.structured_output,
                 "available": available,
             }
         )
-    return results
+    auto_id: str | None = None
+    auto_label: str | None = None
+    try:
+        auto = resolve_auto_model()
+        auto_id = auto.id
+        auto_label = auto.label
+    except ValueError:
+        pass
+    return {
+        "models": models,
+        "auto_model_id": auto_id,
+        "auto_model_label": auto_label,
+    }

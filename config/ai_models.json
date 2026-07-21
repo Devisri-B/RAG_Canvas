@@ -1,17 +1,51 @@
 [
   {
-    "id": "gemini-2.5-flash",
-    "label": "Gemini 2.5 Flash (Google AI Studio)",
-    "provider": "gemini",
-    "model": "gemini-2.5-flash",
+    "id": "nemotron-3-nano-free",
+    "label": "NVIDIA Nemotron 3 Nano 30B (OpenRouter, free)",
+    "provider": "openrouter",
+    "model": "nvidia/nemotron-3-nano-30b-a3b:free",
     "default": true,
-    "structured_output": "native"
+    "expects_free": true,
+    "structured_output": "best_effort"
+  },
+  {
+    "id": "nemotron-nano-9b-free",
+    "label": "NVIDIA Nemotron Nano 9B V2 (OpenRouter, free) — smallest valid",
+    "provider": "openrouter",
+    "model": "nvidia/nemotron-nano-9b-v2:free",
+    "expects_free": true,
+    "structured_output": "best_effort"
+  },
+  {
+    "id": "gemma-4-26b-free",
+    "label": "Google Gemma 4 26B (OpenRouter, free)",
+    "provider": "openrouter",
+    "model": "google/gemma-4-26b-a4b-it:free",
+    "expects_free": true,
+    "structured_output": "best_effort"
+  },
+  {
+    "id": "gpt-oss-20b-free",
+    "label": "OpenAI gpt-oss-20b (OpenRouter, free)",
+    "provider": "openrouter",
+    "model": "openai/gpt-oss-20b:free",
+    "expects_free": true,
+    "structured_output": "best_effort"
+  },
+  {
+    "id": "laguna-xs-free",
+    "label": "Poolside Laguna XS 2.1 (OpenRouter, free)",
+    "provider": "openrouter",
+    "model": "poolside/laguna-xs-2.1:free",
+    "expects_free": true,
+    "structured_output": "best_effort"
   },
   {
     "id": "nemotron-3-ultra-free",
     "label": "NVIDIA Nemotron 3 Ultra 550B (OpenRouter, free)",
     "provider": "openrouter",
     "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "expects_free": true,
     "structured_output": "best_effort"
   }
 ]

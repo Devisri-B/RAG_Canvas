@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 import time
-
 # Register custom pylti1p3 FastAPI adapter before router modules import it.
 from app import lti as pylti1p3_fastapi
 
@@ -23,6 +22,7 @@ from app.logging_config import configure_logging
 from app.routers import api, lti_routes, oauth, pages
 
 logger = configure_logging()
+
 
 app = FastAPI(title="EasyLearn", version="0.1.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -117,6 +117,48 @@ def handle_invalid_token(request: Request, exc: InvalidAccessToken):
     return RedirectResponse(
         url=easylearn_url("/oauth/login") if oauth_enabled() else easylearn_url("/")
     )
+
+
+@app.get("/healthz")
+async def healthz():
+    """Liveness: process is up. No dependency checks."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness: keys, LTI config, and at least one AI provider are present."""
+    from pathlib import Path
+
+    checks: dict[str, bool] = {}
+    reasons: list[str] = []
+
+    private_key = Path(config.PROJECT_ROOT) / "keys" / "private.key"
+    public_key = Path(config.PROJECT_ROOT) / "keys" / "public.key"
+    checks["lti_keys"] = private_key.is_file() and public_key.is_file()
+    if not checks["lti_keys"]:
+        reasons.append("missing keys/private.key or keys/public.key")
+
+    checks["lti_config"] = config.LTI_CONFIG_PATH.is_file()
+    if not checks["lti_config"]:
+        reasons.append(f"missing {config.LTI_CONFIG_PATH.name}")
+
+    checks["canvas_api_url"] = bool((config.CANVAS_API_URL or "").strip())
+    if not checks["canvas_api_url"]:
+        reasons.append("CANVAS_API_URL not set")
+
+    has_ai = bool((config.OPENROUTER_API_KEY or "").strip()) or bool(
+        (config.GEMINI_API_KEY or "").strip()
+    )
+    checks["ai_provider"] = has_ai
+    if not has_ai:
+        reasons.append("no OPENROUTER_API_KEY or GEMINI_API_KEY")
+
+    ready = all(checks.values())
+    body = {"status": "ready" if ready else "not_ready", "checks": checks}
+    if reasons:
+        body["reasons"] = reasons
+    return JSONResponse(status_code=200 if ready else 503, content=body)
 
 
 app.include_router(pages.router)

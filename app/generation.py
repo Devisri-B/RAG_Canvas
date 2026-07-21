@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
 
-from app.llm.catalog import ModelEntry, get_default_model_id, resolve_model
+from app.llm.catalog import ModelEntry, resolve_model
 from app.llm.errors import format_llm_error
 from app.llm.registry import generate_json as provider_generate_json
 from app.schemas import WeeklyQuiz, validate_questions
@@ -61,23 +62,30 @@ def _build_prompt(
             "- correct_comments and incorrect_comments: leave both as empty strings.\n"
         )
 
-    return f"""You are an expert instructional designer for an introductory Computer Science Principles course.
-
-Generate a weekly quiz based ONLY on the course material below.
+    return f"""You are a university CS instructor writing a formative quiz for students who studied ONLY the material below.
 
 Week/Module: {week_name}
 
-Quiz Generation Requirements:
+Hard requirements:
 {req_str}
 
-General Guidelines:
-- Test conceptual understanding, not trivial memorization or trick questions.
-- Each question must be answerable from the provided material; do not invent facts.
-- question_name: short label (e.g. "Q1: Binary representation").
-- question_text: clear question stem (may include simple HTML like <p> tags).
+Grounding rules (non-negotiable):
+- Use ONLY facts, definitions, complexities, algorithms, and mechanisms that appear in the material.
+- Do NOT invent numbers, slide counts, "N concepts", outside trivia, or facts not in the text.
+- Do NOT ask meta-questions about the deck structure (e.g. "how many slides", "Concept 1.1").
+- A careful student who studied this material must be able to select the keyed answer.
+- Exactly ONE option has answer_weight=100; all other options answer_weight=0.
+- Incorrect options must be wrong for THIS stem (no two right answers). Other true facts from elsewhere in the material must not also fully answer the question.
+- Prefer testing: named definitions, Big-O / costs, data-structure tradeoffs, OS mechanisms, protocol behaviors, etc.
+- Prefer paraphrases of the material over pure keyword matching when possible, but stay faithful.
+- For true/false: the statement must be clearly true or false from the material alone.
+
+Format:
+- question_name: short label (e.g. "Q1: Big-O upper bound").
+- question_text: clear stem (simple HTML like <p> is OK).
 {feedback_guideline}- quiz_title: concise title like "{week_name} Quiz".
 
-Course material:
+Course material (sole source of truth):
 {material_text}
 """
 
@@ -95,8 +103,8 @@ def generate_weekly_quiz(
     include_answer_feedback: bool = False,
     model_id: str | None = None,
 ) -> tuple[WeeklyQuiz, ModelEntry]:
-    """Generate a quiz using the selected model from the catalog."""
-    entry = resolve_model(model_id or get_default_model_id())
+    """Generate a quiz using the selected model from the catalog (or auto-select)."""
+    entry = resolve_model(model_id)
 
     prompt = _build_prompt(
         week_name=week_name,
@@ -111,7 +119,9 @@ def generate_weekly_quiz(
 
     logger.info("Generating quiz via %s (%s / %s)", entry.label, entry.provider, entry.model)
     schema = WeeklyQuiz.model_json_schema()
+    t0 = time.perf_counter()
     text = provider_generate_json(entry, prompt, schema)
+    llm_ms = (time.perf_counter() - t0) * 1000
 
     quiz = WeeklyQuiz.model_validate_json(text)
     validate_questions(quiz)
@@ -125,4 +135,11 @@ def generate_weekly_quiz(
             q.correct_comments = ""
             q.incorrect_comments = ""
 
+    logger.info(
+        "Quiz generate profile: model=%s llm_ms=%.0f prompt_chars=%s questions=%s",
+        entry.id,
+        llm_ms,
+        len(material_text),
+        len(quiz.questions),
+    )
     return quiz, entry

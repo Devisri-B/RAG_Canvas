@@ -3,12 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-
-from .course_export import attachment_path
-
-MAX_TEXT_CHARS = 100_000
-MIN_TEXT_CHARS = 200
 
 SUPPORTED_MATERIAL_SUFFIXES = (".pdf", ".pptx")
 
@@ -58,33 +52,3 @@ def extract_file_text(path: Path) -> str:
         return extract_pptx_text(path)
     raise ValueError(f"Unsupported file type: {path.suffix} ({path.name})")
 
-
-def extract_week_text(export_root: Path, module: dict[str, Any]) -> str:
-    """Concatenate extracted text from all attachments in a week module."""
-    sections: list[str] = []
-    for item in module.get("items", []):
-        if item.get("type") != "Attachment":
-            continue
-        path = attachment_path(export_root, item)
-        text = extract_file_text(path).strip()
-        header = f"## {path.name}"
-        sections.append(f"{header}\n\n{text}" if text else f"{header}\n\n(no extractable text)")
-
-    if not sections:
-        raise ValueError(
-            f"No attachments in module {module.get('name')!r}. "
-            "Run course import or pick another week."
-        )
-
-    combined = "\n\n---\n\n".join(sections)
-    if len(combined) > MAX_TEXT_CHARS:
-        combined = combined[:MAX_TEXT_CHARS] + "\n\n[truncated]"
-    return combined
-
-
-def validate_week_text(text: str, week_name: str) -> None:
-    if len(text.strip()) < MIN_TEXT_CHARS:
-        raise ValueError(
-            f"Extracted text for {week_name} is too short ({len(text)} chars). "
-            "Check source files or extraction."
-        )

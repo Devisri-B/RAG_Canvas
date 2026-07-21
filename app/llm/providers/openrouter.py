@@ -17,6 +17,30 @@ logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+def _strip_code_fences(text: str) -> str:
+    t = (text or "").strip()
+    if t.startswith("```"):
+        lines = t.splitlines()
+        if len(lines) >= 2 and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        t = "\n".join(lines).strip()
+    return t
+
+
+def _parse_json_object_str(text: str) -> str:
+    cleaned = _strip_code_fences(text)
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start : end + 1]
+        json.loads(candidate)
+        return candidate
+    json.loads(cleaned)
+    return cleaned
+
+
 def _client() -> OpenAI:
     api_key = config.OPENROUTER_API_KEY.strip()
     if not api_key:
@@ -80,10 +104,13 @@ def generate_json(model: ModelEntry, prompt: str, schema: dict[str, Any]) -> str
         response_format={"type": "json_object"},
     )
     text = _extract_message_text(response).strip()
-    if text.startswith("```"):
-        text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    json.loads(text)  # validate JSON early
-    return text
+    # Tolerate fences / trailing prose from smaller free models
+    try:
+        return _parse_json_object_str(text)
+    except (ValueError, json.JSONDecodeError):
+        cleaned = _strip_code_fences(text)
+        json.loads(cleaned)  # validate
+        return cleaned
 
 
 def generate_text(model: ModelEntry, prompt: str) -> str:

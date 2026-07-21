@@ -59,7 +59,6 @@ class GenerateQuizRequest(BaseModel):
     points_per_q: int = 1
     mc_options: int = 4
     matching_pairs: int = 4
-    include_feedback: bool = True
     include_answer_feedback: bool = False
     include_agentic_feedback: bool = False
     model_id: str | None = None
@@ -70,14 +69,20 @@ class ModelInfo(BaseModel):
     label: str
     provider: str
     default: bool = False
+    expects_free: bool = False
     structured_output: str = "native"
     available: bool = True
+
+
+class ModelsResponse(BaseModel):
+    models: list[ModelInfo]
+    auto_model_id: str | None = None
+    auto_model_label: str | None = None
 
 
 class DeployQuizRequest(BaseModel):
     module_id: str | int
     quiz: WeeklyQuiz
-    include_feedback: bool | None = None
     include_agentic_feedback: bool | None = None
 
 
@@ -89,27 +94,6 @@ class SwitchCourseRequest(BaseModel):
     course_id: int
 
 
-class DemoSlide(BaseModel):
-    """A single lecture slide: a title plus a few bullet points."""
-
-    title: str
-    bullets: list[str] = Field(default_factory=list)
-
-
-class DemoModule(BaseModel):
-    """A course module backed by one lecture deck."""
-
-    name: str = Field(description="Module/week name, e.g. 'Week 1: Foundations'")
-    summary: str = Field("", description="One-sentence description of the module")
-    slides: list[DemoSlide]
-
-
-class DemoCourse(BaseModel):
-    """An AI-generated demo course outline used to populate Canvas with material."""
-
-    course_title: str
-    course_code: str = ""
-    modules: list[DemoModule]
 
 
 def validate_questions(quiz: WeeklyQuiz) -> None:

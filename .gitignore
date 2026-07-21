@@ -226,6 +226,11 @@ config/lti_config.json
 # Local Cache and Temporary Files
 cache/
 
+# Accidental credential dumps at repo root (canonical: cache/credentials/)
+/*_creds.csv
+/*credentials*.csv
+/prototype_*.csv
+
 # Cursor IDE local config (rules/plans stay local)
 .cursor/
 

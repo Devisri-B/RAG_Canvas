@@ -26,14 +26,13 @@ from app.generation import format_llm_error, generate_weekly_quiz
 from app.llm.catalog import list_models_for_api, resolve_model
 from app.quizzes_service import (
     build_quizzes_overview,
-    get_quiz_feedback_summary,
     get_quiz_stats,
     process_agentic_feedback,
 )
 from app.schemas import (
     DeployQuizRequest,
     GenerateQuizRequest,
-    ModelInfo,
+    ModelsResponse,
     ProcessAgenticFeedbackRequest,
     SwitchCourseRequest,
 )
@@ -134,10 +133,48 @@ def switch_course(
     }
 
 
-@router.get("/models", response_model=list[ModelInfo])
-def api_models(_: RequireLtiLaunchDep, __: RequireTeacherDep) -> list[ModelInfo]:
-    """Return curated AI models available for quiz generation."""
-    return [ModelInfo.model_validate(entry) for entry in list_models_for_api()]
+@router.get("/models", response_model=ModelsResponse)
+def api_models(_: RequireLtiLaunchDep, __: RequireTeacherDep) -> ModelsResponse:
+    """Return curated AI models plus the auto-selected default for this server."""
+    return ModelsResponse.model_validate(list_models_for_api())
+
+
+def _format_file_size(size_bytes: int | float | None) -> str:
+    n = int(size_bytes or 0)
+    if n > 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    if n > 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n} B"
+
+
+def _module_file_items(module, file_map: dict[int, str]) -> list[dict]:
+    """Build Attachment/File item rows for a Canvas module object."""
+    raw_items = getattr(module, "items", None)
+    if raw_items is None:
+        raw_items = list(module.get_module_items())
+    items_data: list[dict] = []
+    for item in raw_items:
+        item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+        if item_type not in ("Attachment", "File"):
+            continue
+        if isinstance(item, dict):
+            file_id = item.get("content_id")
+            title = item.get("title") or ""
+            item_id = item.get("id")
+        else:
+            file_id = getattr(item, "content_id", None)
+            title = getattr(item, "title", "") or ""
+            item_id = getattr(item, "id", None)
+        size_str = file_map.get(file_id, "Unknown size") if file_id else "Unknown size"
+        items_data.append(
+            {
+                "id": file_id or item_id,
+                "title": title,
+                "size": size_str,
+            }
+        )
+    return items_data
 
 
 @router.get("/modules")
@@ -146,43 +183,38 @@ def get_modules(
     canvas: CanvasClientDep,
     _: RequireLtiLaunchDep,
     __: RequireTeacherDep,
+    refresh: bool = Query(False, description="Bypass disk cache and refetch from Canvas"),
 ) -> list:
     """Retrieve modules and file attachments for the active course."""
-    cached_data = get_cached_modules(course_id)
-    if cached_data is not None:
-        logger.info("Serving modules for course %s from disk cache.", course_id)
-        return _filter_modules_with_supported_materials(cached_data)
+    if not refresh:
+        cached_data = get_cached_modules(course_id)
+        if cached_data is not None:
+            logger.info("Serving modules for course %s from disk cache.", course_id)
+            return _filter_modules_with_supported_materials(cached_data)
 
     try:
+        logger.info(
+            "Fetching modules from Canvas for course %s (%s).",
+            course_id,
+            "forced refresh" if refresh else "cache miss",
+        )
         course = canvas.get_course(course_id)
         file_map: dict[int, str] = {}
         try:
             for file_obj in course.get_files():
-                size_bytes = getattr(file_obj, "size", 0)
-                if size_bytes > 1024 * 1024:
-                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
-                elif size_bytes > 1024:
-                    size_str = f"{size_bytes / 1024:.0f} KB"
-                else:
-                    size_str = f"{size_bytes} B"
-                file_map[file_obj.id] = size_str
+                file_map[file_obj.id] = _format_file_size(getattr(file_obj, "size", 0))
         except Exception as exc:
             logger.warning("Error fetching course files list: %s", exc)
 
         modules_data = []
-        for module in course.get_modules():
-            items_data = []
-            for item in module.get_module_items():
-                if item.type in ("Attachment", "File"):
-                    file_id = getattr(item, "content_id", None)
-                    size_str = file_map.get(file_id, "Unknown size") if file_id else "Unknown size"
-                    items_data.append(
-                        {
-                            "id": file_id or item.id,
-                            "title": item.title,
-                            "size": size_str,
-                        }
-                    )
+        for module in course.get_modules(include=["items"]):
+            # Canvas may omit inline items when a module is large — fall back per module.
+            if getattr(module, "items", None) is None:
+                logger.debug(
+                    "Module %s missing inline items; fetching module items separately.",
+                    getattr(module, "id", "?"),
+                )
+            items_data = _module_file_items(module, file_map)
             modules_data.append({"id": module.id, "name": module.name, "items": items_data})
 
         save_course_modules(course_id, modules_data)
@@ -283,7 +315,6 @@ def api_generate_quiz(
         quiz_id = secrets.token_hex(8)
         quiz.id = quiz_id
         quiz_dict = quiz.model_dump()
-        quiz_dict["includes_feedback"] = body.include_feedback
         quiz_dict["includes_answer_feedback"] = include_answer_feedback
         quiz_dict["includes_agentic_feedback"] = body.include_agentic_feedback
         quiz_dict["module_id"] = body.module_id
@@ -296,7 +327,7 @@ def api_generate_quiz(
             created_by=request.session.get("user_name", "Instructor"),
         )
 
-        return quiz
+        return quiz_dict
     except HTTPException:
         raise
     except Exception as exc:
@@ -325,11 +356,6 @@ def api_deploy_quiz(
     """Deploy a generated quiz to Canvas."""
     try:
         course = canvas.get_course(course_id)
-        include_feedback = (
-            body.include_feedback
-            if body.include_feedback is not None
-            else bool(getattr(body.quiz, "includes_feedback", False))
-        )
         include_agentic_feedback = (
             body.include_agentic_feedback
             if body.include_agentic_feedback is not None
@@ -338,8 +364,6 @@ def api_deploy_quiz(
         if body.quiz.id:
             draft = get_quiz_draft(course_id, body.quiz.id)
             if draft:
-                if body.include_feedback is None:
-                    include_feedback = draft.get("includes_feedback", include_feedback)
                 if body.include_agentic_feedback is None:
                     include_agentic_feedback = draft.get(
                         "includes_agentic_feedback", include_agentic_feedback
@@ -350,7 +374,6 @@ def api_deploy_quiz(
             course,
             body.module_id,
             body.quiz,
-            include_feedback=include_feedback,
             include_agentic_feedback=include_agentic_feedback,
         )
 
@@ -364,7 +387,6 @@ def api_deploy_quiz(
             quiz_dict["quiz_id"] = deployed_quiz.id
             quiz_dict["module_id"] = module.id
             quiz_dict["module_name"] = module.name
-            quiz_dict["includes_feedback"] = include_feedback
             quiz_dict["includes_agentic_feedback"] = include_agentic_feedback
             quiz_dict["agentic_feedback"] = agentic_meta
             save_quiz_draft(
@@ -378,7 +400,6 @@ def api_deploy_quiz(
             "status": "success",
             "quiz_id": deployed_quiz.id,
             "quiz_url": quiz_url,
-            "includes_feedback": include_feedback,
             "includes_agentic_feedback": include_agentic_feedback,
         }
     except HTTPException:
@@ -472,32 +493,6 @@ def get_quiz_stats_endpoint(
         raise HTTPException(status_code=500, detail="Failed to fetch quiz statistics.") from exc
 
 
-@router.get("/quizzes/{quiz_id}/feedback")
-def get_quiz_feedback_endpoint(
-    course_id: CourseIdDep,
-    canvas: CanvasClientDep,
-    quiz_id: str,
-    _: RequireLtiLaunchDep,
-    __: RequireTeacherDep,
-) -> dict:
-    """Aggregate student survey Likert responses from Canvas."""
-    draft = get_quiz_draft(course_id, quiz_id)
-    if not draft:
-        raise HTTPException(status_code=404, detail="Quiz draft not found.")
-    canvas_quiz_id = draft.get("canvas_quiz_id") or draft.get("quiz_id")
-    if not canvas_quiz_id:
-        raise HTTPException(status_code=400, detail="Quiz has not been deployed to Canvas.")
-
-    try:
-        course = canvas.get_course(course_id)
-        return get_quiz_feedback_summary(course, int(canvas_quiz_id))
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Error in GET /api/quizzes/%s/feedback", quiz_id)
-        raise HTTPException(status_code=500, detail="Failed to fetch quiz survey.") from exc
-
-
 @router.post("/quizzes/{quiz_id}/agentic-feedback/process")
 def process_agentic_feedback_endpoint(
     course_id: CourseIdDep,
@@ -520,7 +515,9 @@ def process_agentic_feedback_endpoint(
             course_id,
             draft,
             force=body.force,
+            draft_quiz_id=quiz_id,
         )
+        # Final persist (checkpoints may have already written progress)
         update_quiz_draft(
             course_id=course_id,
             quiz_id=quiz_id,

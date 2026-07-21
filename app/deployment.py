@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from .agentic_feedback import build_agentic_meta_questions
-from .feedback import build_feedback_questions
 from .schemas import GeneratedQuestion, WeeklyQuiz, to_canvas_question
 
 log = logging.getLogger(__name__)
@@ -40,10 +39,9 @@ def deploy_quiz_to_canvas(
     module_id_or_name: str | int,
     payload: WeeklyQuiz,
     *,
-    include_feedback: bool = False,
     include_agentic_feedback: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
-    """Create draft quiz, add questions, optionally append feedback items, link in module."""
+    """Create draft quiz, add questions, optionally append agentic meta items, link in module."""
     quiz = course.create_quiz(
         quiz={
             "title": payload.quiz_title,
@@ -56,35 +54,48 @@ def deploy_quiz_to_canvas(
 
     agentic_rows: list[dict[str, Any]] = []
     strip_static = include_agentic_feedback
+    canvas_pos = 0
 
     for i, q in enumerate(payload.questions):
+        canvas_pos += 1
+        content_canvas_number = canvas_pos
+
         deploy_q = _question_for_deploy(q, strip_static_feedback=strip_static)
         created = quiz.create_question(question=to_canvas_question(deploy_q))
-        log.info("  Added question: %s", q.question_name)
+        log.info(
+            "  Added question (Canvas Q%s): %s",
+            content_canvas_number,
+            q.question_name,
+        )
 
         row: dict[str, Any] = {
             "content_index": i,
             "content_canvas_id": int(created.id),
+            "content_canvas_number": content_canvas_number,
         }
 
         if include_agentic_feedback and q.feedback_enabled:
-            meta_questions = build_agentic_meta_questions(i, q.question_name)
+            meta_questions = build_agentic_meta_questions(
+                content_canvas_number,
+                content_stem=q.question_text or "",
+            )
             conf_created = quiz.create_question(
                 question=to_canvas_question(meta_questions[0])
             )
+            canvas_pos += 1
             expl_created = quiz.create_question(
                 question=to_canvas_question(meta_questions[1])
             )
+            canvas_pos += 1
             row["confidence_canvas_id"] = int(conf_created.id)
             row["explanation_canvas_id"] = int(expl_created.id)
-            log.info("  Added agentic meta for: %s", q.question_name)
+            log.info(
+                "  Added agentic meta for Canvas Q%s (%s)",
+                content_canvas_number,
+                q.question_name,
+            )
 
         agentic_rows.append(row)
-
-    if include_feedback:
-        for fq in build_feedback_questions():
-            quiz.create_question(question=to_canvas_question(fq))
-            log.info("  Added survey question: %s", fq.question_name)
 
     module = find_module_by_id_or_name(course, module_id_or_name)
     module.create_module_item(

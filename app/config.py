@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     CANVAS_PUBLIC_URL: str = ""
     EASYLEARN_PUBLIC_URL: str = ""
 
+
+
     @field_validator("CANVAS_API_URL", mode="after")
     @classmethod
     def strip_trailing_slash(cls, value: str) -> str:
@@ -149,6 +151,8 @@ def rewrite_canvas_url(url: str) -> str:
 STATIC_DIR = PROJECT_ROOT / "static"
 TEMPLATES_DIR = PROJECT_ROOT / "templates"
 CACHE_DIR = PROJECT_ROOT / "cache"
+# Instance-specific login dumps (gitignored via cache/). Never commit these.
+CREDS_DIR = CACHE_DIR / "credentials"
 LTI_CONFIG_PATH = PROJECT_ROOT / "config" / "lti_config.json"
 
 # Backward-compatible module-level exports (used across app/ and utils/)
