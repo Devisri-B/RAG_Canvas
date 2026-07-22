@@ -98,6 +98,11 @@ def generate_weekly_quiz(
     """Generate a quiz using the selected model from the catalog."""
     entry = resolve_model(model_id or get_default_model_id())
 
+    # RAG: focus the material via chunk -> bge embeddings -> FAISS selection
+    from app.retrieval import select_material
+
+    material_text = select_material(material_text, query=week_name)
+
     prompt = _build_prompt(
         week_name=week_name,
         material_text=material_text,
