@@ -74,6 +74,12 @@ def parse_args() -> argparse.Namespace:
         help="Use cache/week-N.txt for extracted text",
     )
     parser.add_argument(
+        "--no-ocr",
+        dest="ocr",
+        action="store_false",
+        help="Disable OCR of image-locked content (OCR is on by default).",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -93,13 +99,14 @@ def load_or_extract_text(
     module: dict,
     week_label: str,
     use_cache: bool,
+    ocr: bool = False,
 ) -> str:
     path = cache_path(week_label)
     if use_cache and path.is_file():
         log.info("Loading cached text from %s", path)
         return path.read_text(encoding="utf-8")
 
-    text = extract_week_text(export_root, module)
+    text = extract_week_text(export_root, module, ocr=ocr)
     week_name = module.get("name", normalize_week_label(week_label))
     validate_week_text(text, week_name)
 
@@ -124,7 +131,7 @@ def main() -> int:
     week_name = module.get("name", normalize_week_label(args.week))
 
     text = load_or_extract_text(
-        export_root, module, args.week, use_cache=args.cache
+        export_root, module, args.week, use_cache=args.cache, ocr=args.ocr
     )
 
     if args.extract_only:
