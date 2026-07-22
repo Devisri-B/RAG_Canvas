@@ -21,6 +21,19 @@ dependencies = [
     "uvicorn>=0.49.0",
 ]
 
+[project.optional-dependencies]
+rag = [
+    "sentence-transformers>=3.0",
+    "faiss-cpu>=1.8",
+    "tiktoken>=0.7",
+    "langchain-text-splitters>=0.3",
+]
+ocr = [
+    "pymupdf>=1.24",
+    "docling>=2.0",
+]
+
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.0",
