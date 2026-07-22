@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     SESSION_SECRET_KEY: str = "some-very-secret-key-change-in-production"
     CANVAS_PUBLIC_URL: str = ""
     EASYLEARN_PUBLIC_URL: str = ""
+    RAG_ENABLED: bool = False
+    OCR_ENABLED: bool = False
+    RAG_MAX_TOKENS: int = 12000
 
 
 
@@ -168,3 +171,6 @@ OPENROUTER_API_KEY = settings.OPENROUTER_API_KEY
 OPENROUTER_HTTP_REFERER = settings.OPENROUTER_HTTP_REFERER
 OPENROUTER_APP_NAME = settings.OPENROUTER_APP_NAME
 SESSION_SECRET_KEY = settings.SESSION_SECRET_KEY
+RAG_ENABLED = settings.RAG_ENABLED
+OCR_ENABLED = settings.OCR_ENABLED
+RAG_MAX_TOKENS = settings.RAG_MAX_TOKENS
