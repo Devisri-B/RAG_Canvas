@@ -99,7 +99,6 @@ def generate_weekly_quiz(
     entry = resolve_model(model_id or get_default_model_id())
 
     # RAG: focus the material via chunk -> bge embeddings -> FAISS selection
-    # (lossless when the week fits the budget; trims oversized weeks by relevance).
     from app.retrieval import select_material
 
     material_text = select_material(material_text, query=week_name)

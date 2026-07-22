@@ -1,11 +1,6 @@
 """Optional RAG retrieval layer: chunk week text -> bge embeddings -> FAISS,
 with week-filtered similarity search.
 
-The current generator stuffs a whole week's text into the LLM, which is fine
-while a week fits the context window. This module is provided for when that
-stops scaling — large weeks, whole-course review, or source-cited retrieval —
-so the generator can pull the top-k relevant chunks instead of everything.
-
 ``select_material()`` is wired into generation (app/generation.py): every quiz
 is built from chunk -> bge -> FAISS focused material rather than a raw truncated
 blob. Heavy deps are regular requirements, imported lazily. ``WeekRetriever``

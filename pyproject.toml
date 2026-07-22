@@ -19,7 +19,6 @@ dependencies = [
     "python-pptx>=1.0",
     "requests>=2.34.2",
     "uvicorn>=0.49.0",
-    # RAG pipeline (used by default): OCR extraction + embeddings/retrieval
     "pymupdf>=1.24",
     "docling>=2.0",
     "sentence-transformers>=3.0",

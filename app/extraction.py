@@ -1,6 +1,6 @@
 """Extract text from weekly course materials (PDF, PPTX).
 
-Upgraded to recover content the naive extractors were silently dropping:
+Upgraded to recover content:
   * PPTX GROUP shapes are now recursed into (python-pptx does not descend into
     groups by default — grouped titles / text boxes were being lost), and table
     text is included. These use python-pptx only, so they are ALWAYS ON.
